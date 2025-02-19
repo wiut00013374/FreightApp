@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/orderSummaryScrollView"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:orientation="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <!-- Title -->
+        <TextView
+            android:id="@+id/tvSummaryTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Order Summary"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- Origin Address -->
+        <TextView
+            android:id="@+id/tvOriginAddressLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Origin:"/>
+        <TextView
+            android:id="@+id/tvOriginAddress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""/>
+
+        <!-- Destination Address -->
+        <TextView
+            android:id="@+id/tvDestinationAddressLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Destination:"
+            android:layout_marginTop="8dp"/>
+        <TextView
+            android:id="@+id/tvDestinationAddress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""/>
+
+        <!-- Total Distance -->
+        <TextView
+            android:id="@+id/tvDistanceLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Total Distance:"
+            android:layout_marginTop="8dp"/>
+        <TextView
+            android:id="@+id/tvTotalDistance"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""/>
+
+        <!-- Truck Type -->
+        <TextView
+            android:id="@+id/tvTruckTypeLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Truck Type:"
+            android:layout_marginTop="8dp"/>
+        <TextView
+            android:id="@+id/tvTruckType"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""/>
+
+        <!-- Volume -->
+        <TextView
+            android:id="@+id/tvVolumeLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Volume (m³):"
+            android:layout_marginTop="8dp"/>
+        <TextView
+            android:id="@+id/tvVolume"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""/>
+
+        <!-- Weight -->
+        <TextView
+            android:id="@+id/tvWeightLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Weight (kg):"
+            android:layout_marginTop="8dp"/>
+        <TextView
+            android:id="@+id/tvWeight"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""/>
+
+        <!-- Total Price -->
+        <TextView
+            android:id="@+id/tvPriceLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Total Price:"
+            android:layout_marginTop="8dp"/>
+        <TextView
+            android:id="@+id/tvTotalPrice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""/>
+
+        <!-- Confirm Order Button -->
+        <Button
+            android:id="@+id/btnConfirmOrder"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Confirm Order"
+            android:layout_marginTop="16dp"/>
+    </LinearLayout>
+</ScrollView>

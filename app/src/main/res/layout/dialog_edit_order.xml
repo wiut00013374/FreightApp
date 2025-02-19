@@ -1,0 +1,54 @@
+<!-- res/layout/dialog_edit_order.xml -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:orientation="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <!-- Origin AutoCompleteTextView -->
+        <AutoCompleteTextView
+            android:id="@+id/actvOriginEdit"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:hint="Edit Origin Address"
+            android:inputType="text"
+            />
+
+        <!-- Destination AutoCompleteTextView -->
+        <AutoCompleteTextView
+            android:id="@+id/actvDestinationEdit"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:hint="Edit Destination Address"
+            android:inputType="text"
+            />
+
+        <!-- Volume -->
+        <EditText
+            android:id="@+id/etVolumeEdit"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:hint="Volume (m³)"
+            android:inputType="numberDecimal" />
+
+        <!-- Weight -->
+        <EditText
+            android:id="@+id/etWeightEdit"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:hint="Weight (kg)"
+            android:inputType="numberDecimal" />
+
+        <!-- Truck Type -->
+        <EditText
+            android:id="@+id/etTruckTypeEdit"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:hint="Truck Type"
+            android:inputType="text" />
+    </LinearLayout>
+</ScrollView>

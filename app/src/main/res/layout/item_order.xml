@@ -1,0 +1,69 @@
+<!-- res/layout/item_order.xml -->
+<androidx.cardview.widget.CardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_margin="8dp"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:padding="16dp"
+        android:orientation="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <!-- Order information -->
+        <TextView
+            android:id="@+id/tvOrderOrigin"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Origin" />
+
+        <TextView
+            android:id="@+id/tvOrderDestination"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Destination" />
+
+        <TextView
+            android:id="@+id/tvOrderPrice"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Price" />
+
+        <TextView
+            android:id="@+id/tvOrderStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Status" />
+
+        <!-- Buttons container -->
+        <LinearLayout
+            android:layout_marginTop="8dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnEditOrder"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="Edit" />
+
+            <Button
+                android:id="@+id/btnDeleteOrder"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="Delete" />
+            <Button
+                android:id="@+id/btnContactDriver"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Contact Driver" />
+
+        </LinearLayout>
+
+
+    </LinearLayout>
+</androidx.cardview.widget.CardView>

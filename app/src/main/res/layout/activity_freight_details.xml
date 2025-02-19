@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/freightDetailsScrollView"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:orientation="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <!-- Title -->
+        <TextView
+            android:id="@+id/tvTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Enter Freight Details"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- Volume input -->
+        <TextView
+            android:id="@+id/tvVolumeLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Volume (cubic meters):" />
+        <EditText
+            android:id="@+id/etVolume"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:hint="e.g., 12.5"
+            android:inputType="numberDecimal"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- Weight input -->
+        <TextView
+            android:id="@+id/tvWeightLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Weight (kg):" />
+        <EditText
+            android:id="@+id/etWeight"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:hint="e.g., 1500"
+            android:inputType="numberDecimal"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- Truck type selection -->
+        <TextView
+            android:id="@+id/tvTruckTypeLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Preferred Truck Type:" />
+        <Spinner
+            android:id="@+id/spinnerTruckType"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- Submit button -->
+        <Button
+            android:id="@+id/btnSubmitFreight"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Submit Freight Details" />
+    </LinearLayout>
+</ScrollView>
