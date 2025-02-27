@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -19,6 +20,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import com.example.freightapp.utils.PermissionManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -437,11 +439,15 @@ class HomeFragment : Fragment() {
             .show()
     }
 
-
-
     private fun centerMapOnMyLocation() {
-        if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION)
-            == PackageManager.PERMISSION_GRANTED) {
+        // Check if we have location permission
+        if (!PermissionManager.hasLocationPermission(requireContext())) {
+            // Request permission if not granted
+            PermissionManager.requestLocationPermission(this)
+            return
+        }
+
+        try {
             myLocationOverlay.enableMyLocation()
             val locationProvider = myLocationOverlay.myLocationProvider
             val lastKnownLocation = locationProvider.lastKnownLocation
@@ -455,12 +461,11 @@ class HomeFragment : Fragment() {
                 Toast.makeText(requireContext(), "Location not available. Please check your settings.", Toast.LENGTH_LONG).show()
                 showEnableLocationServicesDialog()
             }
-        } else {
-            ActivityCompat.requestPermissions(
-                requireActivity(),
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
-                REQUEST_PERMISSIONS_REQUEST_CODE
-            )
+        } catch (e: SecurityException) {
+            // This should not happen since we check for permission first, but handle it just in case
+            Log.e(TAG, "SecurityException when accessing location: ${e.message}")
+            Toast.makeText(requireContext(), "Location permission is required", Toast.LENGTH_SHORT).show()
+            PermissionManager.requestLocationPermission(this)
         }
     }
 
@@ -477,13 +482,21 @@ class HomeFragment : Fragment() {
     }
 
     private fun checkPermissions() {
-        val permissions = mutableListOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE
-        )
-        val permissionsToRequest = permissions.filter {
-            ContextCompat.checkSelfPermission(requireContext(), it) != PackageManager.PERMISSION_GRANTED
+        val permissionsToRequest = mutableListOf<String>()
+
+        // Check for location permission
+        if (!PermissionManager.hasLocationPermission(requireContext())) {
+            permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
         }
+
+        // Check for storage permission (needed for OSMDroid map tiles)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
+        }
+
         if (permissionsToRequest.isNotEmpty()) {
             ActivityCompat.requestPermissions(
                 requireActivity(),
@@ -493,9 +506,50 @@ class HomeFragment : Fragment() {
         }
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        when (requestCode) {
+            REQUEST_PERMISSIONS_REQUEST_CODE -> {
+                // Process each permission result
+                var locationGranted = true
+
+                for (i in permissions.indices) {
+                    when (permissions[i]) {
+                        Manifest.permission.ACCESS_FINE_LOCATION -> {
+                            locationGranted = grantResults[i] == PackageManager.PERMISSION_GRANTED
+
+                            if (locationGranted) {
+                                // Re-enable location functionality
+                                myLocationOverlay.enableMyLocation()
+                            } else {
+                                Toast.makeText(
+                                    requireContext(),
+                                    "Location permission is needed to show your position on the map",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         mapView.onResume()
+
+        // Only enable my location if we have permission
+        if (PermissionManager.hasLocationPermission(requireContext())) {
+            try {
+                myLocationOverlay.enableMyLocation()
+            } catch (e: SecurityException) {
+                Log.e(TAG, "SecurityException when enabling location: ${e.message}")
+            }
+        }
     }
 
     override fun onPause() {
