@@ -5,32 +5,44 @@ import com.example.freightapp.Order
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlin.math.*
 
+/**
+ * Service for processing customer orders and finding drivers
+ */
 class OrderProcessor {
     private val TAG = "OrderProcessor"
     private val firestore = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
 
-    // Services for order matching
-    private val orderMatcher = OrderMatcher()
+    // Configuration
+    companion object {
+        private const val MAX_SEARCH_DISTANCE_KM = 50.0
+        private const val MAX_DRIVERS_TO_CONTACT = 10
+    }
 
-
+    /**
+     * Create a new order and start the driver matching process
+     * @return Pair<success, orderId>
+     */
     suspend fun createOrder(order: Order): Pair<Boolean, String?> {
         return try {
             // Validate order details
             validateOrder(order)
 
+            // Get current user ID
+            val currentUserId = auth.currentUser?.uid
+                ?: throw IllegalStateException("User not authenticated")
+
             // Create order document in Firestore
             val orderRef = firestore.collection("orders").document()
 
-            // Set the ID and create timestamp
+            // Set the ID and customer ID
             val processedOrder = order.copy(
                 id = orderRef.id,
-                uid = auth.currentUser?.uid ?: throw IllegalStateException("User not authenticated"),
-                status = "Looking For Driver", // Update status to indicate we're searching
+                uid = currentUserId,
+                status = "Looking For Driver", // Initial status while searching for driver
                 timestamp = System.currentTimeMillis()
             )
 
@@ -39,8 +51,8 @@ class OrderProcessor {
 
             Log.d(TAG, "Order created with ID: ${processedOrder.id}")
 
-            // Initiate driver matching process
-            val driverAssigned = assignDriverToOrder(processedOrder)
+            // Find and match with nearby drivers
+            findDriversForOrder(processedOrder)
 
             return Pair(true, processedOrder.id)
 
@@ -50,33 +62,41 @@ class OrderProcessor {
         }
     }
 
-
-    private suspend fun assignDriverToOrder(order: Order): Boolean {
+    /**
+     * Find drivers for a newly created order
+     */
+    private suspend fun findDriversForOrder(order: Order): Boolean {
         try {
-            // First, try to find drivers with the exact truck type
-            var drivers = findNearbyDrivers(order.truckType, order.originLat, order.originLon)
+            // Find nearby available drivers with the matching truck type
+            val availableDrivers = findNearbyDrivers(
+                order.truckType,
+                order.originLat,
+                order.originLon
+            )
 
-            // If no drivers found with exact match, try with a more flexible approach
-            if (drivers.isEmpty()) {
-                Log.d(TAG, "No drivers with exact truck type match, trying any available driver")
-                drivers = findAnyAvailableDrivers(order.originLat, order.originLon)
-            }
-
-            if (drivers.isEmpty()) {
+            if (availableDrivers.isEmpty()) {
                 Log.d(TAG, "No available drivers found for order ${order.id}")
+
                 // Update order status to indicate no drivers available
                 firestore.collection("orders").document(order.id)
-                    .update("status", "No Drivers Available").await()
+                    .update("status", "No Drivers Available")
+                    .await()
 
                 return false
             }
 
-            Log.d(TAG, "Found ${drivers.size} available drivers for order ${order.id}")
+            Log.d(TAG, "Found ${availableDrivers.size} available drivers for order ${order.id}")
 
-            // Create a contact list with all available drivers
-            val driversContactList = drivers.associateWith { "pending" }.toMutableMap()
+            // Create a contacts list with all available drivers (limited to max)
+            val driversToContact = availableDrivers.take(MAX_DRIVERS_TO_CONTACT)
 
-            // Update the order with the contact list
+            // Create map of driver IDs to contact status
+            val driversContactList = mutableMapOf<String, String>()
+            driversToContact.forEach { driver ->
+                driversContactList[driver.id] = "pending" // pending, notified, accepted, rejected
+            }
+
+            // Initialize driver contact process in Firestore
             firestore.collection("orders").document(order.id)
                 .update(
                     mapOf(
@@ -84,66 +104,37 @@ class OrderProcessor {
                         "currentDriverIndex" to 0,
                         "lastDriverNotificationTime" to System.currentTimeMillis()
                     )
-                ).await()
-            // For testing purposes only - Auto-assign to the first driver
-            // In production, you'd wait for driver acceptance
-            if (drivers.isNotEmpty()) {
-                val firstDriver = drivers.first()
+                )
+                .await()
 
-                // Assign the order to this driver
+            // The actual notification of drivers will be handled by a Cloud Function
+            // which will be triggered by the changes we just made to the order document
+
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error finding drivers for order: ${e.message}")
+
+            // Update order status to indicate driver search failed
+            try {
                 firestore.collection("orders").document(order.id)
-                    .update(
-                        mapOf(
-                            "driverUid" to firstDriver,
-                            "status" to "Accepted",
-                            "acceptedAt" to System.currentTimeMillis()
-                        )
-                    ).await()
-
-                Log.d(TAG, "Auto-assigned order ${order.id} to driver $firstDriver")
-
-                // Update the driver's list of orders
-                addOrderToDriverList(firstDriver, order.id)
-
-                return true
+                    .update("status", "Driver Search Failed")
+                    .await()
+            } catch (e2: Exception) {
+                Log.e(TAG, "Failed to update order status: ${e2.message}")
             }
 
-            return false
-        } catch (e: Exception) {
-            Log.e(TAG, "Error assigning driver to order: ${e.message}")
             return false
         }
     }
 
-
-    private suspend fun addOrderToDriverList(driverId: String, orderId: String) {
-        try {
-            // Get the driver's current orders list
-            val driverDoc = firestore.collection("users").document(driverId).get().await()
-
-            @Suppress("UNCHECKED_CAST")
-            val currentOrders = driverDoc.get("orders") as? MutableList<String> ?: mutableListOf()
-
-            // Add the new order ID if it's not already in the list
-            if (!currentOrders.contains(orderId)) {
-                currentOrders.add(orderId)
-
-                // Update the driver's document
-                firestore.collection("users").document(driverId)
-                    .update("orders", currentOrders).await()
-
-                Log.d(TAG, "Added order $orderId to driver $driverId's orders list")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error adding order to driver's list: ${e.message}")
-        }
-    }
-
-
-    private suspend fun findNearbyDrivers(truckType: String, originLat: Double, originLon: Double): List<String> {
-        // Maximum distance in kilometers
-        val MAX_SEARCH_DISTANCE = 50.0
-
+    /**
+     * Find nearby available drivers that match the truck type
+     */
+    private suspend fun findNearbyDrivers(
+        truckType: String,
+        originLat: Double,
+        originLon: Double
+    ): List<DriverInfo> {
         try {
             // Query for available drivers with matching truck type
             val driversQuery = firestore.collection("users")
@@ -153,35 +144,94 @@ class OrderProcessor {
                 .get()
                 .await()
 
-            Log.d(TAG, "Found ${driversQuery.size()} drivers with matching truck type")
+            Log.d(TAG, "Found ${driversQuery.documents.size} potential drivers with matching truck type")
 
-            // List to hold driver IDs
-            val driverIds = mutableListOf<String>()
+            val drivers = mutableListOf<DriverInfo>()
 
-            // Process each driver
+            // Filter drivers based on location and sort by distance
             for (doc in driversQuery.documents) {
+                val driverData = doc.data ?: continue
                 val driverId = doc.id
-                val location = doc.get("location") as? GeoPoint
 
-                // Check if driver has a valid location
-                if (location != null) {
-                    val distance = calculateDistance(
+                // Check for FCM token (needed for notifications)
+                val fcmToken = driverData["fcmToken"] as? String ?: continue
+                if (fcmToken.isBlank()) {
+                    Log.d(TAG, "Driver $driverId has no FCM token, skipping")
+                    continue
+                }
+
+                // Extract driver location
+                val locationObj = driverData["location"]
+                val driverLat: Double
+                val driverLon: Double
+                var hasLocation = false
+
+                when (locationObj) {
+                    is GeoPoint -> {
+                        driverLat = locationObj.latitude
+                        driverLon = locationObj.longitude
+                        hasLocation = true
+                    }
+                    is Map<*, *> -> {
+                        val lat = (locationObj["latitude"] as? Number)?.toDouble()
+                        val lon = (locationObj["longitude"] as? Number)?.toDouble()
+                        if (lat != null && lon != null) {
+                            driverLat = lat
+                            driverLon = lon
+                            hasLocation = true
+                        } else {
+                            continue
+                        }
+                    }
+                    else -> {
+                        // If no location data, add with null distance (will be sorted after drivers with known distance)
+                        val driverName = driverData["displayName"] as? String ?: "Driver"
+                        drivers.add(
+                            DriverInfo(
+                                id = driverId,
+                                name = driverName,
+                                fcmToken = fcmToken,
+                                distanceKm = null
+                            )
+                        )
+                        continue
+                    }
+                }
+
+                // Calculate distance to pickup point
+                if (hasLocation) {
+                    val distanceKm = calculateDistance(
                         originLat, originLon,
-                        location.latitude, location.longitude
+                        driverLat, driverLon
                     )
 
                     // Only include drivers within the search radius
-                    if (distance <= MAX_SEARCH_DISTANCE) {
-                        driverIds.add(driverId)
-                        Log.d(TAG, "Added driver $driverId at distance ${String.format("%.2f", distance)} km")
+                    if (distanceKm <= MAX_SEARCH_DISTANCE_KM) {
+                        val driverName = driverData["displayName"] as? String ?: "Driver"
+                        drivers.add(
+                            DriverInfo(
+                                id = driverId,
+                                name = driverName,
+                                fcmToken = fcmToken,
+                                distanceKm = distanceKm
+                            )
+                        )
                     }
-                } else {
-                    // If no location, still include the driver as they may be newly available
-                    driverIds.add(driverId)
-                    Log.d(TAG, "Added driver $driverId (no location data)")}
+                }
             }
 
-            return driverIds
+            // If no drivers with matching truck type, try to find any available drivers
+            if (drivers.isEmpty()) {
+                return findAnyAvailableDrivers(originLat, originLon)
+            }
+
+            // Sort by distance (closest first, null distance last)
+            return drivers.sortedWith(compareBy(
+                // Sort nulls last
+                { it.distanceKm == null },
+                // Then sort by distance
+                { it.distanceKm ?: Double.MAX_VALUE }
+            ))
 
         } catch (e: Exception) {
             Log.e(TAG, "Error finding nearby drivers: ${e.message}")
@@ -189,8 +239,13 @@ class OrderProcessor {
         }
     }
 
-
-    private suspend fun findAnyAvailableDrivers(originLat: Double, originLon: Double): List<String> {
+    /**
+     * Find any available drivers if no matching truck type is found
+     */
+    private suspend fun findAnyAvailableDrivers(
+        originLat: Double,
+        originLon: Double
+    ): List<DriverInfo> {
         try {
             // Query for all available drivers
             val driversQuery = firestore.collection("users")
@@ -199,10 +254,90 @@ class OrderProcessor {
                 .get()
                 .await()
 
-            Log.d(TAG, "Found ${driversQuery.size()} available drivers (any truck type)")
+            Log.d(TAG, "Searching for any available drivers, found ${driversQuery.documents.size}")
 
-            // List to hold driver IDs - no distance filtering to ensure we get some drivers
-            return driversQuery.documents.map { it.id }
+            val drivers = mutableListOf<DriverInfo>()
+
+            // Process each driver (similar to findNearbyDrivers but without truck type filter)
+            for (doc in driversQuery.documents) {
+                val driverData = doc.data ?: continue
+                val driverId = doc.id
+                val fcmToken = driverData["fcmToken"] as? String ?: continue
+
+                if (fcmToken.isBlank()) continue
+
+                // Process location and calculate distance as in findNearbyDrivers
+                val locationObj = driverData["location"]
+                val driverName = driverData["displayName"] as? String ?: "Driver"
+
+                if (locationObj == null) {
+                    // Add without location data
+                    drivers.add(
+                        DriverInfo(
+                            id = driverId,
+                            name = driverName,
+                            fcmToken = fcmToken,
+                            distanceKm = null
+                        )
+                    )
+                    continue
+                }
+
+                var driverLat = 0.0
+                var driverLon = 0.0
+                var hasLocation = false
+
+                when (locationObj) {
+                    is GeoPoint -> {
+                        driverLat = locationObj.latitude
+                        driverLon = locationObj.longitude
+                        hasLocation = true
+                    }
+                    is Map<*, *> -> {
+                        val lat = (locationObj["latitude"] as? Number)?.toDouble()
+                        val lon = (locationObj["longitude"] as? Number)?.toDouble()
+                        if (lat != null && lon != null) {
+                            driverLat = lat
+                            driverLon = lon
+                            hasLocation = true
+                        }
+                    }
+                }
+
+                if (hasLocation) {
+                    val distanceKm = calculateDistance(
+                        originLat, originLon,
+                        driverLat, driverLon
+                    )
+
+                    if (distanceKm <= MAX_SEARCH_DISTANCE_KM) {
+                        drivers.add(
+                            DriverInfo(
+                                id = driverId,
+                                name = driverName,
+                                fcmToken = fcmToken,
+                                distanceKm = distanceKm
+                            )
+                        )
+                    }
+                } else {
+                    // Add without distance
+                    drivers.add(
+                        DriverInfo(
+                            id = driverId,
+                            name = driverName,
+                            fcmToken = fcmToken,
+                            distanceKm = null
+                        )
+                    )
+                }
+            }
+
+            // Sort as before
+            return drivers.sortedWith(compareBy(
+                { it.distanceKm == null },
+                { it.distanceKm ?: Double.MAX_VALUE }
+            ))
 
         } catch (e: Exception) {
             Log.e(TAG, "Error finding any available drivers: ${e.message}")
@@ -210,9 +345,14 @@ class OrderProcessor {
         }
     }
 
-
-    private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-        val R = 6371.0 // Earth's radius in km
+    /**
+     * Calculate distance between two points using the Haversine formula
+     */
+    private fun calculateDistance(
+        lat1: Double, lon1: Double,
+        lat2: Double, lon2: Double
+    ): Double {
+        val R = 6371.0 // Earth's radius in kilometers
         val dLat = Math.toRadians(lat2 - lat1)
         val dLon = Math.toRadians(lon2 - lon1)
         val a = sin(dLat / 2) * sin(dLat / 2) +
@@ -232,5 +372,17 @@ class OrderProcessor {
         require(order.totalPrice > 0) { "Total price must be positive" }
         require(order.originLat != 0.0 && order.originLon != 0.0) { "Valid origin coordinates are required" }
         require(order.destinationLat != 0.0 && order.destinationLon != 0.0) { "Valid destination coordinates are required" }
+        require(order.volume > 0) { "Volume must be positive" }
+        require(order.weight > 0) { "Weight must be positive" }
     }
 }
+
+/**
+ * Data class for driver information during matching process
+ */
+data class DriverInfo(
+    val id: String,
+    val name: String,
+    val fcmToken: String,
+    val distanceKm: Double?  // null if distance is unknown
+)
