@@ -6,80 +6,153 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 
-/**
- * Service to process orders, including creating new orders and handling driver responses
- */
 class OrderProcessor {
     private val TAG = "OrderProcessor"
     private val firestore = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
 
+    // Services for order matching
+    private val orderMatcher = OrderMatcher()
+
     /**
-     * Update an order's status
+     * Create a new order and initiate the matching process
+     * @param order The order to be processed
+     * @return Pair of (success status, order ID)
      */
-    suspend fun updateOrderStatus(orderId: String, status: String): Boolean {
+    suspend fun createOrder(order: Order): Pair<Boolean, String> {
         return try {
+            // Validate order details
+            validateOrder(order)
+
+            // Create order document in Firestore
+            val orderRef = firestore.collection("orders").document()
+
+            // Set the ID and create timestamp
+            val processedOrder = order.copy(
+                id = orderRef.id,
+                uid = auth.currentUser?.uid ?: throw IllegalStateException("User not authenticated"),
+                status = "Pending",
+                timestamp = System.currentTimeMillis()
+            )
+
+            // Save order to Firestore
+            orderRef.set(processedOrder).await()
+
+            // Initiate driver matching process
+            val matchingResult = orderMatcher.matchOrderToDrivers(processedOrder)
+
+            if (matchingResult) {
+                // Notify customer that order is being processed
+                notifyCustomerOrderCreated(processedOrder)
+
+                Pair(true, processedOrder.id)
+            } else {
+                // If no drivers found, update order status
+                orderRef.update("status", "No Drivers Available").await()
+                Pair(false, processedOrder.id)
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error creating order: ${e.message}")
+            Pair(false, "")
+        }
+    }
+
+    /**
+     * Update an existing order
+     * @param orderId The ID of the order to update
+     * @param updates Map of fields to update
+     * @return Success status
+     */
+    suspend fun updateOrder(orderId: String, updates: Map<String, Any>): Boolean {
+        return try {
+            // Validate user is the order owner
+            val currentUserId = auth.currentUser?.uid
+                ?: throw IllegalStateException("User not authenticated")
+
+            // Get current order to verify ownership
+            val orderDoc = firestore.collection("orders").document(orderId).get().await()
+            val orderOwnerId = orderDoc.getString("uid")
+
+            if (orderOwnerId != currentUserId) {
+                throw SecurityException("User not authorized to update this order")
+            }
+
+            // Check if order can be modified based on status
+            val currentStatus = orderDoc.getString("status")
+            if (currentStatus !in listOf("Pending", "Draft")) {
+                throw IllegalStateException("Cannot modify order with status: $currentStatus")
+            }
+
+            // Validate and sanitize updates
+            val sanitizedUpdates = sanitizeOrderUpdates(updates)
+
+            // Update order
             firestore.collection("orders").document(orderId)
-                .update("status", status)
+                .update(sanitizedUpdates)
                 .await()
 
-            // If this is a completion status, notify the customer
-            if (status == "Delivered" || status == "Completed") {
-                val orderDoc = firestore.collection("orders").document(orderId).get().await()
-                val customerId = orderDoc.getString("uid")
+            // If truck type or location changed, restart driver matching
+            if (sanitizedUpdates.keys.any { it in listOf("truckType", "originLat", "originLon") }) {
+                val updatedOrder = orderDoc.toObject(Order::class.java)?.copy(
+                    truckType = sanitizedUpdates["truckType"] as? String
+                        ?: orderDoc.getString("truckType") ?: "",
+                    originLat = sanitizedUpdates["originLat"] as? Double
+                        ?: orderDoc.getDouble("originLat") ?: 0.0,
+                    originLon = sanitizedUpdates["originLon"] as? Double
+                        ?: orderDoc.getDouble("originLon") ?: 0.0
+                )
 
-                if (customerId != null) {
-                    NotificationService.sendCustomerOrderNotification(
-                        customerId = customerId,
-                        orderId = orderId,
-                        title = "Order $status",
-                        message = "Your order has been $status. Thank you for using our service!"
-                    )
+                updatedOrder?.let {
+                    orderMatcher.matchOrderToDrivers(it)
                 }
             }
 
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Error updating order status: ${e.message}")
+            Log.e(TAG, "Error updating order: ${e.message}")
             false
         }
     }
 
     /**
-     * Cancel an order by a customer
+     * Cancel an existing order
+     * @param orderId The ID of the order to cancel
+     * @return Success status
      */
     suspend fun cancelOrder(orderId: String): Boolean {
         return try {
+            // Validate user is the order owner
+            val currentUserId = auth.currentUser?.uid
+                ?: throw IllegalStateException("User not authenticated")
+
+            // Get current order to verify ownership
             val orderDoc = firestore.collection("orders").document(orderId).get().await()
-            val driverUid = orderDoc.getString("driverUid")
+            val orderOwnerId = orderDoc.getString("uid")
+
+            if (orderOwnerId != currentUserId) {
+                throw SecurityException("User not authorized to cancel this order")
+            }
+
+            // Check if order can be cancelled
+            val currentStatus = orderDoc.getString("status")
+            if (currentStatus !in listOf("Pending", "Draft", "Finding Driver")) {
+                throw IllegalStateException("Cannot cancel order with status: $currentStatus")
+            }
 
             // Update order status
             firestore.collection("orders").document(orderId)
                 .update(
                     mapOf(
                         "status" to "Cancelled",
-                        "cancelledAt" to System.currentTimeMillis()
+                        "cancelledAt" to System.currentTimeMillis(),
+                        "cancelledBy" to currentUserId
                     )
                 )
                 .await()
 
-            // Notify the driver if one is assigned
-            if (driverUid != null) {
-                val driverDoc = firestore.collection("users").document(driverUid).get().await()
-                val fcmToken = driverDoc.getString("fcmToken")
-
-                if (!fcmToken.isNullOrEmpty()) {
-                    val orderObj = orderDoc.toObject(Order::class.java)
-                    val originCity = orderObj?.originCity ?: "unknown"
-                    val destinationCity = orderObj?.destinationCity ?: "unknown"
-
-                    NotificationService.sendDriverOrderCancellation(
-                        fcmToken = fcmToken,
-                        orderId = orderId,
-                        message = "Order from $originCity to $destinationCity has been cancelled by the customer."
-                    )
-                }
-            }
+            // Notify any assigned driver about cancellation
+            notifyDriverAboutCancellation(orderId)
 
             true
         } catch (e: Exception) {
@@ -89,144 +162,141 @@ class OrderProcessor {
     }
 
     /**
-     * Process a new order and start finding drivers
+     * Validate order details before processing
      */
-    suspend fun processNewOrder(order: Order): Boolean {
+    private fun validateOrder(order: Order) {
+        require(order.originCity.isNotBlank()) { "Origin city is required" }
+        require(order.destinationCity.isNotBlank()) { "Destination city is required" }
+        require(order.truckType.isNotBlank()) { "Truck type is required" }
+        require(order.totalPrice > 0) { "Total price must be positive" }
+        require(order.originLat != 0.0 && order.originLon != 0.0) { "Valid origin coordinates are required" }
+        require(order.destinationLat != 0.0 && order.destinationLon != 0.0) { "Valid destination coordinates are required" }
+    }
+
+    /**
+     * Sanitize and validate order updates
+     */
+    private fun sanitizeOrderUpdates(updates: Map<String, Any>): Map<String, Any> {
+        val sanitized = mutableMapOf<String, Any>()
+
+        // Allowed fields for update
+        val allowedFields = setOf(
+            "originCity",
+            "destinationCity",
+            "truckType",
+            "volume",
+            "weight",
+            "originLat",
+            "originLon",
+            "destinationLat",
+            "destinationLon"
+        )
+
+        updates.forEach { (key, value) ->
+            if (key in allowedFields) {
+                when (key) {
+                    "originCity", "destinationCity", "truckType" ->
+                        require(value is String && value.isNotBlank()) { "$key must be a non-empty string" }
+                    "volume", "weight" ->
+                        require(value is Number && value.toDouble() > 0) { "$key must be a positive number" }
+                    "originLat", "originLon", "destinationLat", "destinationLon" ->
+                        require(value is Number) { "$key must be a number" }
+                }
+                sanitized[key] = value
+            }
+        }
+
+        return sanitized
+    }
+
+    /**
+     * Notify customer that order is being processed
+     */
+    private suspend fun notifyCustomerOrderCreated(order: Order) {
         try {
-            // Create a new document in Firestore for the order
-            val orderRef = if (order.id.isBlank()) {
-                firestore.collection("orders").document()
-            } else {
-                firestore.collection("orders").document(order.id)
-            }
-
-            // Set order ID if not already set
-            if (order.id.isBlank()) {
-                order.id = orderRef.id
-            }
-
-            // Save the order to Firestore
-            orderRef.set(order).await()
-            Log.d(TAG, "Created new order with ID: ${order.id}")
-
-            // Start finding drivers for this order
-            val driverFinder = DriverFinder()
-            val driversFound = driverFinder.findNearbyDriversForOrder(order.id)
-
-            return if (driversFound) {
-                Log.d(TAG, "Started driver search process for order ${order.id}")
-
-                // Update order status to indicate search is in progress
-                orderRef.update("status", "Finding Driver").await()
-
-                true
-            } else {
-                Log.d(TAG, "No drivers found for order ${order.id}")
-
-                // Update order status to indicate no drivers were found
-                orderRef.update("status", "No Drivers Available").await()
-                false
-            }
-
+            NotificationService.sendCustomerOrderNotification(
+                customerId = order.uid,
+                orderId = order.id,
+                title = "Order Created",
+                message = "Your order from ${order.originCity} to ${order.destinationCity} is being processed"
+            )
         } catch (e: Exception) {
-            Log.e(TAG, "Error processing new order: ${e.message}")
-            return false
+            Log.e(TAG, "Error notifying customer about order creation: ${e.message}")
         }
     }
 
     /**
-     * Process a driver's response to an order notification
+     * Notify driver about order cancellation
      */
-    suspend fun processDriverResponse(driverId: String, orderId: String, accepted: Boolean): Boolean {
+    private suspend fun notifyDriverAboutCancellation(orderId: String) {
         try {
-            Log.d(TAG, "Processing driver $driverId response for order $orderId: ${if (accepted) "accepted" else "rejected"}")
-
-            // Get the current order
+            // Get the order document
             val orderDoc = firestore.collection("orders").document(orderId).get().await()
+            val driverUid = orderDoc.getString("driverUid")
 
-            // Order must exist
-            if (!orderDoc.exists()) {
-                Log.e(TAG, "Order $orderId not found")
-                return false
-            }
+            if (driverUid != null) {
+                // Get driver's FCM token
+                val driverDoc = firestore.collection("users").document(driverUid).get().await()
+                val fcmToken = driverDoc.getString("fcmToken")
 
-            // Check if order already has a driver
-            val currentDriverUid = orderDoc.getString("driverUid")
-            if (currentDriverUid != null && currentDriverUid != driverId) {
-                Log.d(TAG, "Order $orderId already assigned to driver $currentDriverUid")
-                return false
-            }
-
-            // Get the drivers contact list
-            @Suppress("UNCHECKED_CAST")
-            val driversContactList = orderDoc.get("driversContactList") as? Map<String, String>
-
-            if (driversContactList == null || !driversContactList.containsKey(driverId)) {
-                Log.e(TAG, "Driver $driverId not in contact list for order $orderId")
-                return false
-            }
-
-            // Update the driver's status in the list
-            val updatedList = driversContactList.toMutableMap()
-            updatedList[driverId] = if (accepted) "accepted" else "rejected"
-
-            if (accepted) {
-                // Assign the driver to the order
-                val updates = mapOf(
-                    "driverUid" to driverId,
-                    "status" to "Accepted",
-                    "driversContactList" to updatedList,
-                    "acceptedAt" to System.currentTimeMillis()
-                )
-
-                firestore.collection("orders").document(orderId)
-                    .update(updates)
-                    .await()
-
-                Log.d(TAG, "Driver $driverId accepted order $orderId")
-
-                // Cancel any pending timeouts
-                DriverTimeoutManager.cancelTimeout(orderId)
-
-                // Notify the customer
-                val customerId = orderDoc.getString("uid")
-                if (customerId != null) {
-                    NotificationService.sendCustomerOrderNotification(
-                        customerId = customerId,
+                if (fcmToken != null) {
+                    NotificationService.sendDriverOrderCancellation(
+                        fcmToken = fcmToken,
                         orderId = orderId,
-                        title = "Driver Found!",
-                        message = "A driver has accepted your order and will pick up your freight soon."
+                        message = "The order has been cancelled by the customer"
                     )
                 }
-
-                return true
-
-            } else {
-                // Driver rejected, update the list and move to the next driver
-                val currentIndex = orderDoc.getLong("currentDriverIndex") ?: 0
-
-                firestore.collection("orders").document(orderId)
-                    .update(
-                        mapOf(
-                            "driversContactList" to updatedList,
-                            "currentDriverIndex" to currentIndex + 1
-                        )
-                    )
-                    .await()
-
-                Log.d(TAG, "Driver $driverId rejected order $orderId, moving to next driver")
-
-                // Notify the next driver
-                val driverFinder = DriverFinder()
-                driverFinder.notifyNextDriverForOrder(orderId)
-
-                return true
             }
-
         } catch (e: Exception) {
-            Log.e(TAG, "Error processing driver response: ${e.message}")
-            return false
+            Log.e(TAG, "Error notifying driver about cancellation: ${e.message}")
         }
     }
 
-/**
+    /**
+     * Retrieve order details
+     * @param orderId The ID of the order to retrieve
+     * @return Order details or null if not found
+     */
+    suspend fun getOrderDetails(orderId: String): Order? {
+        return try {
+            val currentUserId = auth.currentUser?.uid
+                ?: throw IllegalStateException("User not authenticated")
+
+            val orderDoc = firestore.collection("orders").document(orderId).get().await()
+            val order = orderDoc.toObject(Order::class.java)
+
+            // Ensure user can only access their own orders
+            if (order?.uid != currentUserId) {
+                throw SecurityException("User not authorized to access this order")
+            }
+
+            order
+        } catch (e: Exception) {
+            Log.e(TAG, "Error retrieving order details: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Retrieve user's orders
+     * @param status Optional status filter
+     * @return List of orders matching the criteria
+     */
+    suspend fun getUserOrders(status: String? = null): List<Order> {
+        return try {
+            val currentUserId = auth.currentUser?.uid
+                ?: throw IllegalStateException("User not authenticated")
+
+            val query = firestore.collection("orders")
+                .whereEqualTo("uid", currentUserId)
+                .apply {
+                    status?.let { whereEqualTo("status", it) }
+                }
+
+            query.get().await().toObjects(Order::class.java)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error retrieving user orders: ${e.message}")
+            emptyList()
+        }
+    }
+}

@@ -7,37 +7,29 @@ import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.example.freightapp.services.OrderProcessor
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class OrderSummaryActivity : AppCompatActivity() {
-
-    private lateinit var tvOriginAddress: TextView
-    private lateinit var tvDestinationAddress: TextView
-    private lateinit var tvTotalDistance: TextView
-    private lateinit var tvTruckType: TextView
-    private lateinit var tvVolume: TextView
-    private lateinit var tvWeight: TextView
-    private lateinit var tvTotalPrice: TextView
-    private lateinit var btnConfirmOrder: Button
-
-    companion object {
-        private const val TAG = "OrderSummaryActivity"
-    }
+    private val orderProcessor = OrderProcessor()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_order_summary)
 
         // Reference UI elements
-        tvOriginAddress = findViewById(R.id.tvOriginAddress)
-        tvDestinationAddress = findViewById(R.id.tvDestinationAddress)
-        tvTotalDistance = findViewById(R.id.tvTotalDistance)
-        tvTruckType = findViewById(R.id.tvTruckType)
-        tvVolume = findViewById(R.id.tvVolume)
-        tvWeight = findViewById(R.id.tvWeight)
-        tvTotalPrice = findViewById(R.id.tvTotalPrice)
-        btnConfirmOrder = findViewById(R.id.btnConfirmOrder)
+        val tvOriginAddress = findViewById<TextView>(R.id.tvOriginAddress)
+        val tvDestinationAddress = findViewById<TextView>(R.id.tvDestinationAddress)
+        val tvTotalDistance = findViewById<TextView>(R.id.tvTotalDistance)
+        val tvTruckType = findViewById<TextView>(R.id.tvTruckType)
+        val tvVolume = findViewById<TextView>(R.id.tvVolume)
+        val tvWeight = findViewById<TextView>(R.id.tvWeight)
+        val tvTotalPrice = findViewById<TextView>(R.id.tvTotalPrice)
+        val btnConfirmOrder = findViewById<Button>(R.id.btnConfirmOrder)
 
         // Retrieve extras passed to this activity
         val originAddress = intent.getStringExtra("originAddress") ?: "Not provided"
@@ -62,18 +54,43 @@ class OrderSummaryActivity : AppCompatActivity() {
         tvTotalPrice.text = "$${String.format("%.2f", totalPrice)}"
 
         btnConfirmOrder.setOnClickListener {
-            confirmOrder(
-                originAddress,
-                destinationAddress,
-                originLat,
-                originLon,
-                destinationLat,
-                destinationLon,
-                truckType,
-                volume,
-                weight,
-                totalPrice
-            )
+            // Use CoroutineScope for asynchronous order creation
+            CoroutineScope(Dispatchers.Main).launch {
+                try {
+                    // Create the order
+                    val order = Order(
+                        originCity = extractCity(originAddress),
+                        destinationCity = extractCity(destinationAddress),
+                        originLat = originLat,
+                        originLon = originLon,
+                        destinationLat = destinationLat,
+                        destinationLon = destinationLon,
+                        totalPrice = totalPrice,
+                        truckType = truckType,
+                        volume = volume,
+                        weight = weight
+                    )
+
+                    // Process the order
+                    val (success, orderId) = orderProcessor.createOrder(order)
+
+                    if (success) {
+                        Toast.makeText(this@OrderSummaryActivity, "Order confirmed!", Toast.LENGTH_LONG).show()
+                        Log.d("OrderSummary", "Order saved with ID: $orderId")
+
+                        // Navigate to MainActivity, showing Orders tab
+                        val intent = Intent(this@OrderSummaryActivity, MainActivity::class.java)
+                        intent.putExtra("selectedTab", "orders")
+                        startActivity(intent)
+                        finish()
+                    } else {
+                        Toast.makeText(this@OrderSummaryActivity, "Failed to save order. Please try again.", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Exception) {
+                    Log.e("OrderSummary", "Error processing order: ${e.message}")
+                    Toast.makeText(this@OrderSummaryActivity, "An error occurred: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
@@ -81,51 +98,4 @@ class OrderSummaryActivity : AppCompatActivity() {
     private fun extractCity(address: String): String {
         return address.split(",").firstOrNull() ?: address
     }
-
-    private fun confirmOrder(
-        originAddress: String,
-        destinationAddress: String,
-        originLat: Double,
-        originLon: Double,
-        destinationLat: Double,
-        destinationLon: Double,
-        truckType: String,
-        volume: Double,
-        weight: Double,
-        totalPrice: Double
-    ) {
-        // Get the current user’s UID (ensure the user is authenticated)
-        val currentUserUid = FirebaseAuth.getInstance().currentUser?.uid ?: ""
-        val order = Order(
-            uid = currentUserUid,  // Customer’s UID
-            originCity = extractCity(originAddress),
-            destinationCity = extractCity(destinationAddress),
-            originLat = originLat,
-            originLon = originLon,
-            destinationLat = destinationLat,
-            destinationLon = destinationLon,
-            totalPrice = totalPrice,
-            truckType = truckType,
-            volume = volume,
-            weight = weight,
-            status = "Pending"
-        )
-
-        OrderRepository.createOrder(order) { success, orderId ->
-            if (success) {
-                Toast.makeText(this, "Order confirmed!", Toast.LENGTH_LONG).show()
-                Log.d(TAG, "Order saved with ID: $orderId")
-                // Navigate to MainActivity, e.g., to the Orders tab.
-                val intent = Intent(this, MainActivity::class.java)
-                intent.putExtra("selectedTab", "orders")
-                startActivity(intent)
-                finish()
-            } else {
-                Toast.makeText(this, "Failed to save order. Please try again.", Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
-
-
 }

@@ -14,5 +14,6 @@ data class Order(
     var truckType: String = "",
     var volume: Double = 0.0,
     var weight: Double = 0.0,
-    var status: String = "Pending"
+    var status: String = "Pending",
+    val timestamp: Long = System.currentTimeMillis()
 )

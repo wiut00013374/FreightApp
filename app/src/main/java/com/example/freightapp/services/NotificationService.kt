@@ -112,6 +112,39 @@ object NotificationService {
     }
 
     /**
+     * Send a notification to a driver about order cancellation
+     */
+    suspend fun sendDriverOrderCancellation(
+        fcmToken: String,
+        orderId: String,
+        message: String
+    ): Boolean {
+        try {
+            // Create notification data payload
+            val notificationData = hashMapOf(
+                "to" to fcmToken,
+                "priority" to "high",
+                "notification" to hashMapOf(
+                    "title" to "Order Cancelled",
+                    "body" to message,
+                    "sound" to "default"
+                ),
+                "data" to hashMapOf(
+                    "orderId" to orderId,
+                    "type" to "order_cancelled",
+                    "click_action" to "OPEN_ORDER_DETAIL"
+                )
+            )
+
+            // Send notification
+            return sendFcmNotification(notificationData)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending order cancellation notification: ${e.message}")
+            return false
+        }
+    }
+
+    /**
      * Send a chat message notification
      */
     suspend fun sendChatMessageNotification(
