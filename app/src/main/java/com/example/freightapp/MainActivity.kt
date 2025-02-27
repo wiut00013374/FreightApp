@@ -9,30 +9,54 @@ import androidx.fragment.app.Fragment
 import com.example.freightapp.utils.PermissionManager
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 
 class MainActivity : AppCompatActivity() {
-
-    private lateinit var bottomNavigation: BottomNavigationView
     private val auth by lazy { FirebaseAuth.getInstance() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         // Check if user is authenticated
-        if (auth.currentUser == null) {
-            // User is not authenticated, navigate to SignInActivity and finish MainActivity
+        val currentUser = auth.currentUser
+        if (currentUser == null) {
+            // No user signed in, redirect to SignInActivity
             startActivity(Intent(this, SignInActivity::class.java))
             finish()
-            return  // Prevent further execution
+            return
         }
 
-        setContentView(R.layout.activity_main)
-        bottomNavigation = findViewById(R.id.bottom_navigation)
+        // If user is signed in, check user profile
+        checkUserProfile(currentUser.uid)
+    }
 
-        // Request permissions
-        requestRequiredPermissions()
+    private fun checkUserProfile(uid: String) {
+        FirebaseFirestore.getInstance().collection("users")
+            .document(uid)
+            .get()
+            .addOnSuccessListener { document ->
+                if (document.exists()) {
+                    // User profile exists, set content view and continue
+                    setContentView(R.layout.activity_main)
+                    setupBottomNavigation()
+                } else {
+                    // No user profile, redirect to SignUpActivity
+                    startActivity(Intent(this, SignUpActivity::class.java))
+                    finish()
+                }
+            }
+            .addOnFailureListener {
+                // Error checking profile, redirect to SignIn
+                Toast.makeText(this, "Authentication failed", Toast.LENGTH_SHORT).show()
+                startActivity(Intent(this, SignInActivity::class.java))
+                finish()
+            }
+    }
 
-        // Determine which fragment to load on startup. Optionally check for extras like "selectedTab".
+    private fun setupBottomNavigation() {
+        val bottomNavigation: BottomNavigationView = findViewById(R.id.bottom_navigation)
+
+        // Determine which fragment to load on startup
         val selectedTab = intent.getStringExtra("selectedTab")
         if (selectedTab == "orders") {
             loadFragment(OrdersFragment())
@@ -69,41 +93,5 @@ class MainActivity : AppCompatActivity() {
         supportFragmentManager.beginTransaction()
             .replace(R.id.nav_host_fragment, fragment)
             .commit()
-    }
-
-    /**
-     * Request required permissions
-     */
-    private fun requestRequiredPermissions() {
-        // Request notification permission if not granted (Android 13+)
-        if (!PermissionManager.hasNotificationPermission(this)) {
-            PermissionManager.requestNotificationPermission(this)
-        }
-    }
-
-    /**
-     * Handle permission request results
-     */
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-
-        when (requestCode) {
-            PermissionManager.REQUEST_NOTIFICATIONS_PERMISSION -> {
-                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    // Permission granted, we can send notifications
-                } else {
-                    // Permission denied, inform the user
-                    Toast.makeText(
-                        this,
-                        "Notification permission is needed to receive updates",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
-        }
     }
 }

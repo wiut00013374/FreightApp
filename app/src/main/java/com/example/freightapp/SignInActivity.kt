@@ -8,49 +8,69 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.FirebaseFirestore
 
 class SignInActivity : AppCompatActivity() {
-
     private lateinit var auth: FirebaseAuth
+    private lateinit var firestore: FirebaseFirestore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_sign_in)
 
-        // Initialize Firebase Auth
         auth = FirebaseAuth.getInstance()
+        firestore = FirebaseFirestore.getInstance()
 
         val etEmail = findViewById<EditText>(R.id.etSignInEmail)
         val etPassword = findViewById<EditText>(R.id.etSignInPassword)
         val btnSignIn = findViewById<Button>(R.id.btnSignIn)
         val tvSignUpLink = findViewById<TextView>(R.id.tvSignUpLink)
 
-        // Sign In button
         btnSignIn.setOnClickListener {
             val email = etEmail.text.toString().trim()
             val password = etPassword.text.toString().trim()
 
             if (email.isNotEmpty() && password.isNotEmpty()) {
-                auth.signInWithEmailAndPassword(email, password)
-                    .addOnCompleteListener { task ->
-                        if (task.isSuccessful) {
-                            // Navigate to MainActivity instead of HomeFragment directly.
-                            val intent = Intent(this, MainActivity::class.java)
-                            startActivity(intent)
-                            finish()
-                        } else {
-                            Toast.makeText(this, "Sign In Failed: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
-                        }
-                    }
+                signInUser(email, password)
             } else {
                 Toast.makeText(this, "Please enter Email and Password", Toast.LENGTH_SHORT).show()
             }
         }
 
-        // Sign Up link
         tvSignUpLink.setOnClickListener {
-            val intent = Intent(this, SignUpActivity::class.java)
-            startActivity(intent)
+            startActivity(Intent(this, SignUpActivity::class.java))
         }
+    }
+
+    private fun signInUser(email: String, password: String) {
+        auth.signInWithEmailAndPassword(email, password)
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    val user = auth.currentUser
+                    user?.let { checkUserProfile(it) }
+                } else {
+                    Toast.makeText(this, "Sign In Failed: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+    }
+
+    private fun checkUserProfile(user: FirebaseUser) {
+        firestore.collection("users").document(user.uid)
+            .get()
+            .addOnSuccessListener { document ->
+                if (document.exists()) {
+                    // User profile exists, go to MainActivity
+                    startActivity(Intent(this, MainActivity::class.java))
+                } else {
+                    // No user profile, redirect to SignUpActivity
+                    startActivity(Intent(this, SignUpActivity::class.java))
+                }
+                finish()
+            }
+            .addOnFailureListener {
+                // Error checking profile, show error
+                Toast.makeText(this, "Error accessing profile", Toast.LENGTH_SHORT).show()
+            }
     }
 }

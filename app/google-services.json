@@ -1,13 +1,14 @@
 {
   "project_info": {
-    "project_number": "636084158136",
-    "project_id": "freightapp-46b74",
-    "storage_bucket": "freightapp-46b74.firebasestorage.app"
+    "project_number": "689268966876",
+    "firebase_url": "https://asdasd-8e2b3-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "asdasd-8e2b3",
+    "storage_bucket": "asdasd-8e2b3.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:636084158136:android:307dffac504624e2d33e4d",
+        "mobilesdk_app_id": "1:689268966876:android:b767cdaedfe4889d55bb19",
         "android_client_info": {
           "package_name": "com.example.freightapp"
         }
@@ -15,7 +16,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyCQquKt4ic-nel2RdI3dKQUO6Xjp4Rw7ec"
+          "current_key": "AIzaSyB4B6FLa5e6aPogn3ePYx3nePF2MxKYA08"
         }
       ],
       "services": {
