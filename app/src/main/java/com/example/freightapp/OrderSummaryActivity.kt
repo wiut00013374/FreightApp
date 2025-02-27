@@ -3,7 +3,9 @@ package com.example.freightapp
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import android.view.View
 import android.widget.Button
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -13,9 +15,17 @@ import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 
 class OrderSummaryActivity : AppCompatActivity() {
     private val orderProcessor = OrderProcessor()
+    private lateinit var progressBar: ProgressBar
+    private lateinit var tvSearchStatus: TextView
+    private lateinit var btnConfirmOrder: Button
+
+    // Firestore listener for order status updates
+    private var orderStatusListener: com.google.firebase.firestore.ListenerRegistration? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -29,7 +39,15 @@ class OrderSummaryActivity : AppCompatActivity() {
         val tvVolume = findViewById<TextView>(R.id.tvVolume)
         val tvWeight = findViewById<TextView>(R.id.tvWeight)
         val tvTotalPrice = findViewById<TextView>(R.id.tvTotalPrice)
-        val btnConfirmOrder = findViewById<Button>(R.id.btnConfirmOrder)
+
+        // Reference new UI elements for driver search
+        progressBar = findViewById(R.id.progressBarDriverSearch)
+        tvSearchStatus = findViewById(R.id.tvSearchStatus)
+        btnConfirmOrder = findViewById<Button>(R.id.btnConfirmOrder)
+
+        // Initially hide progress bar and status text
+        progressBar.visibility = View.GONE
+        tvSearchStatus.visibility = View.GONE
 
         // Retrieve extras passed to this activity
         val originAddress = intent.getStringExtra("originAddress") ?: "Not provided"
@@ -54,6 +72,9 @@ class OrderSummaryActivity : AppCompatActivity() {
         tvTotalPrice.text = "$${String.format("%.2f", totalPrice)}"
 
         btnConfirmOrder.setOnClickListener {
+            // Show searching UI
+            showSearchingForDriverUI()
+
             // Use CoroutineScope for asynchronous order creation
             CoroutineScope(Dispatchers.Main).launch {
                 try {
@@ -75,27 +96,144 @@ class OrderSummaryActivity : AppCompatActivity() {
                     val (success, orderId) = orderProcessor.createOrder(order)
 
                     if (success) {
-                        Toast.makeText(this@OrderSummaryActivity, "Order confirmed!", Toast.LENGTH_LONG).show()
-                        Log.d("OrderSummary", "Order saved with ID: $orderId")
+                        Log.d("OrderSummary", "Order created with ID: $orderId")
 
-                        // Navigate to MainActivity, showing Orders tab
-                        val intent = Intent(this@OrderSummaryActivity, MainActivity::class.java)
-                        intent.putExtra("selectedTab", "orders")
-                        startActivity(intent)
-                        finish()
+                        // Set up listener for order status changes
+                        if (orderId != null) {
+                            setupOrderStatusListener(orderId)
+                        }
+
+                        // Button is already hidden by showSearchingForDriverUI()
                     } else {
-                        Toast.makeText(this@OrderSummaryActivity, "Failed to save order. Please try again.", Toast.LENGTH_LONG).show()
+                        updateSearchStatus("Failed to find a driver. Please try again later.")
+                        btnConfirmOrder.isEnabled = true
+                        btnConfirmOrder.text = "Try Again"
+                        progressBar.visibility = View.GONE
                     }
                 } catch (e: Exception) {
                     Log.e("OrderSummary", "Error processing order: ${e.message}")
+                    hideSearchingForDriverUI()
                     Toast.makeText(this@OrderSummaryActivity, "An error occurred: ${e.message}", Toast.LENGTH_LONG).show()
+                    btnConfirmOrder.isEnabled = true
                 }
             }
         }
     }
 
+    private fun showSearchingForDriverUI() {
+        progressBar.visibility = View.VISIBLE
+        tvSearchStatus.visibility = View.VISIBLE
+        tvSearchStatus.text = "Searching for available drivers..."
+        btnConfirmOrder.isEnabled = false
+    }
+
+    private fun hideSearchingForDriverUI() {
+        progressBar.visibility = View.GONE
+        tvSearchStatus.visibility = View.GONE
+        btnConfirmOrder.isEnabled = true
+    }
+
+    private fun updateSearchStatus(status: String) {
+        tvSearchStatus.text = status
+    }
+
+    private fun setupOrderStatusListener(orderId: String) {
+        // Remove any existing listener
+        orderStatusListener?.remove()
+
+        // Create new listener for order status
+        orderStatusListener = FirebaseFirestore.getInstance()
+            .collection("orders")
+            .document(orderId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e("OrderSummary", "Error listening for order updates: ${error.message}")
+                    return@addSnapshotListener
+                }
+
+                if (snapshot != null && snapshot.exists()) {
+                    val status = snapshot.getString("status")
+                    val driverUid = snapshot.getString("driverUid")
+
+                    when (status) {
+                        "Looking For Driver" -> {
+                            updateSearchStatus("Looking for a driver...")
+                        }
+                        "Accepted" -> {
+                            // A driver has accepted the order
+                            updateSearchStatus("Driver found! Preparing your order...")
+                            progressBar.visibility = View.GONE
+
+                            // Get driver details
+                            if (driverUid != null) {
+                                CoroutineScope(Dispatchers.Main).launch {
+                                    getDriverDetails(driverUid)
+                                }
+                            }
+
+                            // Navigate to orders screen after a short delay
+                            CoroutineScope(Dispatchers.Main).launch {
+                                withContext(Dispatchers.IO) {
+                                    kotlinx.coroutines.delay(3000)
+                                }
+                                navigateToOrdersScreen()
+                            }
+                        }
+                        "No Drivers Available" -> {
+                            updateSearchStatus("No drivers available at this time. Please try again later.")
+                            progressBar.visibility = View.GONE
+                            btnConfirmOrder.isEnabled = true
+                            btnConfirmOrder.text = "Try Again"
+                        }
+                        "Driver Search Failed" -> {
+                            updateSearchStatus("Failed to find a driver. Please try again.")
+                            progressBar.visibility = View.GONE
+                            btnConfirmOrder.isEnabled = true
+                            btnConfirmOrder.text = "Try Again"
+                        }
+                        else -> {
+                            updateSearchStatus("Order status: $status")
+                        }
+                    }
+                }
+            }
+    }
+
+    private suspend fun getDriverDetails(driverId: String) {
+        try {
+            val driverDoc = withContext(Dispatchers.IO) {
+                FirebaseFirestore.getInstance().collection("users")
+                    .document(driverId)
+                    .get()
+                    .await()
+            }
+
+            if (driverDoc.exists()) {
+                val driverName = driverDoc.getString("displayName") ?: "Your Driver"
+                updateSearchStatus("$driverName has accepted your order!")
+            }
+        } catch (e: Exception) {
+            Log.e("OrderSummary", "Error getting driver details: ${e.message}")
+        }
+    }
+
+    private fun navigateToOrdersScreen() {
+        // Navigate to MainActivity, showing Orders tab
+        val intent = Intent(this@OrderSummaryActivity, MainActivity::class.java)
+        intent.putExtra("selectedTab", "orders")
+        intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+        startActivity(intent)
+        finish()
+    }
+
     // Simple method to extract city from address (modify as needed)
     private fun extractCity(address: String): String {
         return address.split(",").firstOrNull() ?: address
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Remove order status listener
+        orderStatusListener?.remove()
     }
 }

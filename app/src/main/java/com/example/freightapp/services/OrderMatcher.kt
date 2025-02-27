@@ -11,241 +11,352 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlin.math.*
 
+/**
+ * Service to match orders with drivers based on location and availability
+ */
 class OrderMatcher {
     private val TAG = "OrderMatcher"
     private val firestore = FirebaseFirestore.getInstance()
 
+    // Configuration
+    companion object {
+        private const val MAX_SEARCH_DISTANCE_KM = 50.0
+        private const val MAX_DRIVERS_TO_CONTACT = 10
+        private const val DRIVER_RESPONSE_TIMEOUT_SECONDS = 60L
+    }
+
     /**
-     * Match order to nearby drivers
-     * @param order The order to match
+     * Match an order to nearby drivers
+     * @param order The order to match with drivers
      * @return Boolean indicating if matching process was initiated successfully
      */
     suspend fun matchOrderToDrivers(order: Order): Boolean {
         return try {
-            // Update order status to finding drivers
-            updateOrderStatus(order.id, "Finding Driver")
+            // Update order status to reflect searching
+            firestore.collection("orders").document(order.id)
+                .update("status", "Looking For Driver")
+                .await()
 
             // Find nearby available drivers
             val nearbyDrivers = findNearbyDrivers(order)
 
             if (nearbyDrivers.isEmpty()) {
-                Log.d(TAG, "No drivers found for order ${order.id}")
-                updateOrderStatus(order.id, "No Drivers Available")
+                Log.d(TAG, "No available drivers found for order ${order.id}")
+                firestore.collection("orders").document(order.id)
+                    .update("status", "No Drivers Available")
+                    .await()
                 return false
             }
 
-            // Create drivers contact list
-            val driversContactList = nearbyDrivers.associate { driver ->
-                driver.id to "pending"
+            Log.d(TAG, "Found ${nearbyDrivers.size} available drivers for order ${order.id}")
+
+            // Create a contacts list with all drivers (limited to max number)
+            val driversToContact = nearbyDrivers.take(MAX_DRIVERS_TO_CONTACT)
+
+            // Create map of driver IDs to contact status
+            val driversContactList = driversToContact.associate { driver ->
+                driver.id to "pending" // Status: pending, notified, accepted, rejected
             }
 
-            // Update order with drivers contact list
-            updateOrderWithDriversList(order.id, driversContactList)
+            // Initialize driver contact process in Firestore
+            firestore.collection("orders").document(order.id)
+                .update(
+                    mapOf(
+                        "driversContactList" to driversContactList,
+                        "currentDriverIndex" to 0,
+                        "lastDriverNotificationTime" to System.currentTimeMillis()
+                    )
+                )
+                .await()
 
-            // Start notifying drivers using coroutines
-            CoroutineScope(Dispatchers.IO).launch {
-                notifyDrivers(order, nearbyDrivers)
-            }
+            // Start contacting the first driver
+            notifyNextDriver(order.id)
 
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error matching order to drivers: ${e.message}")
-            updateOrderStatus(order.id, "Matching Failed")
+
+            try {
+                // Update order status to reflect failure
+                firestore.collection("orders").document(order.id)
+                    .update("status", "Driver Search Failed")
+                    .await()
+            } catch (e2: Exception) {
+                Log.e(TAG, "Error updating order status: ${e2.message}")
+            }
+
             false
         }
     }
 
     /**
-     * Find nearby available drivers for an order
+     * Find nearby available drivers that match the order requirements
      */
     private suspend fun findNearbyDrivers(order: Order): List<DriverCandidate> {
-        // Query for available drivers
-        val driversQuery = firestore.collection("users")
-            .whereEqualTo("userType", "driver")
-            .whereEqualTo("available", true)
-            .whereEqualTo("truckType", order.truckType)
-            .get()
-            .await()
+        try {
+            // Query for available drivers with matching truck type
+            val driversQuery = firestore.collection("users")
+                .whereEqualTo("userType", "driver")
+                .whereEqualTo("available", true)
+                .whereEqualTo("truckType", order.truckType)
+                .get()
+                .await()
 
-        val candidates = mutableListOf<DriverCandidate>()
+            Log.d(TAG, "Found ${driversQuery.size()} potential drivers with matching truck type")
 
-        // Process each driver
-        for (doc in driversQuery.documents) {
-            val driverData = doc.data ?: continue
-            val driverId = doc.id
+            val candidates = mutableListOf<DriverCandidate>()
 
-            // Extract driver location
-            val locationObj = driverData["location"]
-            val driverLat: Double
-            val driverLon: Double
+            // Filter drivers based on location and sort by distance
+            for (doc in driversQuery.documents) {
+                val driverData = doc.data ?: continue
+                val driverId = doc.id
 
-            when (locationObj) {
-                is GeoPoint -> {
-                    driverLat = locationObj.latitude
-                    driverLon = locationObj.longitude
+                // Check for FCM token
+                val fcmToken = driverData["fcmToken"] as? String
+                if (fcmToken.isNullOrBlank()) {
+                    Log.d(TAG, "Driver $driverId has no FCM token, skipping")
+                    continue
                 }
-                is Map<*, *> -> {
-                    driverLat = (locationObj["latitude"] as? Number)?.toDouble() ?: continue
-                    driverLon = (locationObj["longitude"] as? Number)?.toDouble() ?: continue
+
+                // Extract driver location
+                val locationObj = driverData["location"]
+                val driverLat: Double
+                val driverLon: Double
+
+                when (locationObj) {
+                    is GeoPoint -> {
+                        driverLat = locationObj.latitude
+                        driverLon = locationObj.longitude
+                    }
+                    is Map<*, *> -> {
+                        driverLat = (locationObj["latitude"] as? Number)?.toDouble() ?: continue
+                        driverLon = (locationObj["longitude"] as? Number)?.toDouble() ?: continue
+                    }
+                    else -> {
+                        Log.d(TAG, "Driver $driverId has no valid location, skipping")
+                        continue
+                    }
                 }
-                else -> continue
-            }
 
-            // Calculate distance between driver and order origin
-            val distanceKm = calculateHaversineDistance(
-                order.originLat, order.originLon,
-                driverLat, driverLon
-            )
+                // Calculate distance to pickup point
+                val distanceKm = calculateHaversineDistance(
+                    order.originLat, order.originLon,
+                    driverLat, driverLon
+                )
 
-            // Optional: Set max search radius (e.g., 50 km)
-            if (distanceKm <= 50.0) {
-                candidates.add(
-                    DriverCandidate(
-                        id = driverId,
-                        name = driverData["displayName"] as? String ?: "Driver",
-                        fcmToken = driverData["fcmToken"] as? String ?: "",
-                        distanceKm = distanceKm,
-                        location = GeoPoint(driverLat, driverLon)
+                // Only include drivers within the search radius
+                if (distanceKm <= MAX_SEARCH_DISTANCE_KM) {
+                    // Get driver name
+                    val driverName = driverData["displayName"] as? String ?: "Driver"
+
+                    candidates.add(
+                        DriverCandidate(
+                            id = driverId,
+                            name = driverName,
+                            fcmToken = fcmToken,
+                            distanceKm = distanceKm
+                        )
                     )
-                )
+
+                    Log.d(TAG, "Added driver $driverId ($driverName) at distance ${String.format("%.1f", distanceKm)} km")
+                } else {
+                    Log.d(TAG, "Driver $driverId too far (${String.format("%.1f", distanceKm)} km), skipping")
+                }
             }
-        }
 
-        // Sort candidates by distance
-        return candidates.sortedBy { it.distanceKm }
-    }
-
-    /**
-     * Notify drivers about the order
-     */
-    private suspend fun notifyDrivers(order: Order, drivers: List<DriverCandidate>) {
-        // Limit to first 5 nearest drivers
-        val driversToNotify = drivers.take(5)
-
-        // Notify drivers sequentially
-        notifyNextDriver(order, driversToNotify, 0)
-    }
-
-    /**
-     * Notify the next driver in the sequence
-     */
-    private suspend fun notifyNextDriver(
-        order: Order,
-        drivers: List<DriverCandidate>,
-        currentIndex: Int
-    ) {
-        // Check if we've exhausted all drivers
-        if (currentIndex >= drivers.size) {
-            Log.d(TAG, "No drivers accepted order ${order.id}")
-            updateOrderStatus(order.id, "No Drivers Available")
-            return
-        }
-
-        val currentDriver = drivers[currentIndex]
-
-        // Validate FCM token
-        if (currentDriver.fcmToken.isBlank()) {
-            // Skip driver without FCM token
-            notifyNextDriver(order, drivers, currentIndex + 1)
-            return
-        }
-
-        // Send notification
-        val notificationSuccess = try {
-            NotificationService.sendDriverOrderNotification(
-                fcmToken = currentDriver.fcmToken,
-                orderId = order.id,
-                driverId = currentDriver.id
-            )
+            // Sort by distance (closest first)
+            return candidates.sortedBy { it.distanceKm }
         } catch (e: Exception) {
-            Log.e(TAG, "Notification error: ${e.message}")
-            false
+            Log.e(TAG, "Error finding nearby drivers: ${e.message}")
+            return emptyList()
         }
+    }
 
-        if (notificationSuccess) {
-            // Update order to show this driver was notified
-            updateDriverContactStatus(order.id, currentDriver.id, "notified")
+    /**
+     * Notify the next driver in the queue for this order
+     */
+    suspend fun notifyNextDriver(orderId: String): Boolean {
+        try {
+            // Get the current order data
+            val orderDoc = firestore.collection("orders").document(orderId).get().await()
 
-            // Schedule timeout for driver response using coroutine
-            CoroutineScope(Dispatchers.IO).launch {
-                delay(60000) // 60 seconds timeout
-                checkAndMoveToNextDriver(order, drivers, currentIndex)
+            if (!orderDoc.exists()) {
+                Log.d(TAG, "Order $orderId no longer exists")
+                return false
             }
-        } else {
-            // If notification fails, try next driver
-            notifyNextDriver(order, drivers, currentIndex + 1)
-        }
-    }
 
-    /**
-     * Check order status and move to next driver if no response
-     */
-    private suspend fun checkAndMoveToNextDriver(
-        order: Order,
-        drivers: List<DriverCandidate>,
-        currentIndex: Int
-    ) {
-        // Check if order is still in "Finding Driver" status
-        val orderDoc = firestore.collection("orders").document(order.id).get().await()
-        val currentStatus = orderDoc.getString("status")
+            // Check if order already has a driver
+            val driverUid = orderDoc.getString("driverUid")
+            if (driverUid != null) {
+                Log.d(TAG, "Order $orderId already has a driver assigned: $driverUid")
+                return true
+            }
 
-        if (currentStatus == "Finding Driver") {
-            // No driver accepted, move to next
-            notifyNextDriver(order, drivers, currentIndex + 1)
-        }
-    }
-
-    /**
-     * Update order status in Firestore
-     */
-    private suspend fun updateOrderStatus(orderId: String, status: String) {
-        firestore.collection("orders").document(orderId)
-            .update("status", status)
-            .await()
-    }
-
-    /**
-     * Update drivers contact list in order document
-     */
-    private suspend fun updateOrderWithDriversList(
-        orderId: String,
-        driversContactList: Map<String, String>
-    ) {
-        firestore.collection("orders").document(orderId)
-            .update(
-                mapOf(
-                    "driversContactList" to driversContactList,
-                    "currentDriverIndex" to 0
-                )
-            )
-            .await()
-    }
-
-    /**
-     * Update a specific driver's contact status
-     */
-    private suspend fun updateDriverContactStatus(
-        orderId: String,
-        driverId: String,
-        status: String
-    ) {
-        val orderRef = firestore.collection("orders").document(orderId)
-
-        firestore.runTransaction { transaction ->
-            val snapshot = transaction.get(orderRef)
-
+            // Get the drivers contact list
             @Suppress("UNCHECKED_CAST")
-            val currentContactList = snapshot.get("driversContactList") as? MutableMap<String, String>
-
-            currentContactList?.let {
-                it[driverId] = status
-                transaction.update(orderRef, "driversContactList", it)
+            val driversContactList = orderDoc.get("driversContactList") as? Map<String, String>
+            if (driversContactList.isNullOrEmpty()) {
+                Log.d(TAG, "No drivers contact list for order $orderId")
+                firestore.collection("orders").document(orderId)
+                    .update("status", "No Drivers Available")
+                    .await()
+                return false
             }
-        }.await()
+
+            // Get current driver index
+            val currentIndex = orderDoc.getLong("currentDriverIndex")?.toInt() ?: 0
+            val driverIds = driversContactList.keys.toList()
+
+            // Check if we've gone through all drivers
+            if (currentIndex >= driverIds.size) {
+                Log.d(TAG, "All drivers have been contacted for order $orderId")
+                firestore.collection("orders").document(orderId)
+                    .update("status", "No Drivers Available")
+                    .await()
+                return false
+            }
+
+            // Get the next driver ID
+            val driverId = driverIds[currentIndex]
+            val status = driversContactList[driverId]
+
+            // Skip drivers that have already been notified or rejected
+            if (status != "pending") {
+                // Move to the next driver
+                firestore.collection("orders").document(orderId)
+                    .update("currentDriverIndex", currentIndex + 1)
+                    .await()
+
+                return notifyNextDriver(orderId)
+            }
+
+            // Get driver's FCM token
+            val driverDoc = firestore.collection("users").document(driverId).get().await()
+            val fcmToken = driverDoc.getString("fcmToken")
+
+            if (fcmToken.isNullOrBlank()) {
+                Log.d(TAG, "Driver $driverId has no FCM token, skipping")
+
+                // Mark driver as skipped and move to the next one
+                val updatedList = driversContactList.toMutableMap()
+                updatedList[driverId] = "skipped"
+
+                firestore.collection("orders").document(orderId)
+                    .update(
+                        "driversContactList", updatedList,
+                        "currentDriverIndex", currentIndex + 1
+                    )
+                    .await()
+
+                return notifyNextDriver(orderId)
+            }
+
+            // Get the order details for the notification
+            val order = orderDoc.toObject(Order::class.java)?.apply { id = orderId }
+
+            if (order == null) {
+                Log.d(TAG, "Order $orderId could not be converted to object")
+                return false
+            }
+
+            // Send the notification
+            val notificationSuccess = NotificationService.sendDriverOrderNotification(
+                fcmToken = fcmToken,
+                orderId = orderId,
+                driverId = driverId,
+                order = order
+            )
+
+            if (notificationSuccess) {
+                // Update driver status to notified
+                val updatedList = driversContactList.toMutableMap()
+                updatedList[driverId] = "notified"
+
+                firestore.collection("orders").document(orderId)
+                    .update(
+                        "driversContactList", updatedList,
+                        "lastDriverNotificationTime", System.currentTimeMillis()
+                    )
+                    .await()
+
+                Log.d(TAG, "Successfully notified driver $driverId for order $orderId")
+
+                // Schedule a timeout check
+                scheduleDriverResponseTimeout(orderId)
+
+                return true
+            } else {
+                // If notification failed, mark as failed and move to next driver
+                val updatedList = driversContactList.toMutableMap()
+                updatedList[driverId] = "failed"
+
+                firestore.collection("orders").document(orderId)
+                    .update(
+                        "driversContactList", updatedList,
+                        "currentDriverIndex", currentIndex + 1
+                    )
+                    .await()
+
+                Log.d(TAG, "Failed to notify driver $driverId, moving to next")
+
+                return notifyNextDriver(orderId)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error notifying next driver: ${e.message}")
+            return false
+        }
     }
 
     /**
-     * Calculate Haversine distance between two geographical points
+     * Schedule a timeout for driver response
+     */
+    private fun scheduleDriverResponseTimeout(orderId: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // Wait for timeout period
+                delay(DRIVER_RESPONSE_TIMEOUT_SECONDS * 1000)
+
+                // Check if the order still needs a driver
+                val orderDoc = firestore.collection("orders").document(orderId).get().await()
+
+                if (!orderDoc.exists()) {
+                    Log.d(TAG, "Order $orderId no longer exists")
+                    return@launch
+                }
+
+                // Check if already assigned
+                val driverUid = orderDoc.getString("driverUid")
+                if (driverUid != null) {
+                    Log.d(TAG, "Order $orderId already has a driver assigned")
+                    return@launch
+                }
+
+                // Check the last notification time
+                val lastNotificationTime = orderDoc.getLong("lastDriverNotificationTime") ?: 0L
+                val currentTime = System.currentTimeMillis()
+
+                // Only proceed if the timeout period has elapsed since the last notification
+                if (currentTime - lastNotificationTime >= DRIVER_RESPONSE_TIMEOUT_SECONDS * 1000) {
+                    Log.d(TAG, "Driver response timeout for order $orderId")
+
+                    // Move to the next driver
+                    val currentIndex = orderDoc.getLong("currentDriverIndex")?.toInt() ?: 0
+
+                    firestore.collection("orders").document(orderId)
+                        .update("currentDriverIndex", currentIndex + 1)
+                        .await()
+
+                    // Notify the next driver
+                    notifyNextDriver(orderId)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in driver response timeout: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Calculate distance between two points using the Haversine formula
      */
     private fun calculateHaversineDistance(
         lat1: Double, lon1: Double,
@@ -263,12 +374,11 @@ class OrderMatcher {
 }
 
 /**
- * Data class representing a driver candidate for order matching
+ * Data class for driver candidates during matching
  */
 data class DriverCandidate(
     val id: String,
     val name: String,
     val fcmToken: String,
-    val distanceKm: Double,
-    val location: GeoPoint
+    val distanceKm: Double
 )

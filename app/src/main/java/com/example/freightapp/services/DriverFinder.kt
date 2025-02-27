@@ -267,7 +267,8 @@ class DriverFinder {
             val success = NotificationService.sendDriverOrderNotification(
                 fcmToken = fcmToken,
                 orderId = orderId,
-                driverId = driverId
+                driverId = driverId,
+                order = Order()
             )
 
             if (success) {

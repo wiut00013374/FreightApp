@@ -4,7 +4,7 @@ import android.util.Log
 import com.example.freightapp.Order
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.functions.FirebaseFunctions
-import com.google.firebase.messaging.FirebaseMessaging
+import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.tasks.await
 import org.json.JSONObject
 import java.net.URL
@@ -23,23 +23,16 @@ object NotificationService {
      * @param fcmToken The driver's FCM token
      * @param orderId The ID of the order
      * @param driverId The ID of the driver
+     * @param order The order details
      * @return true if notification was sent successfully
      */
     suspend fun sendDriverOrderNotification(
         fcmToken: String,
         orderId: String,
-        driverId: String
+        driverId: String,
+        order: Order
     ): Boolean {
         try {
-            // Get order details to include in notification
-            val orderDoc = firestore.collection("orders").document(orderId).get().await()
-            val order = orderDoc.toObject(Order::class.java)
-
-            if (order == null) {
-                Log.e(TAG, "Order $orderId not found")
-                return false
-            }
-
             // Format price to two decimal places
             val formattedPrice = String.format("$%.2f", order.totalPrice)
 
@@ -56,6 +49,10 @@ object NotificationService {
                     "orderId" to orderId,
                     "driverId" to driverId,
                     "type" to "order_request",
+                    "originCity" to order.originCity,
+                    "destinationCity" to order.destinationCity,
+                    "price" to formattedPrice,
+                    "truckType" to order.truckType,
                     "click_action" to "OPEN_ORDER_DETAIL"
                 )
             )
@@ -112,39 +109,6 @@ object NotificationService {
     }
 
     /**
-     * Send a notification to a driver about order cancellation
-     */
-    suspend fun sendDriverOrderCancellation(
-        fcmToken: String,
-        orderId: String,
-        message: String
-    ): Boolean {
-        try {
-            // Create notification data payload
-            val notificationData = hashMapOf(
-                "to" to fcmToken,
-                "priority" to "high",
-                "notification" to hashMapOf(
-                    "title" to "Order Cancelled",
-                    "body" to message,
-                    "sound" to "default"
-                ),
-                "data" to hashMapOf(
-                    "orderId" to orderId,
-                    "type" to "order_cancelled",
-                    "click_action" to "OPEN_ORDER_DETAIL"
-                )
-            )
-
-            // Send notification
-            return sendFcmNotification(notificationData)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error sending order cancellation notification: ${e.message}")
-            return false
-        }
-    }
-
-    /**
      * Send a chat message notification
      */
     suspend fun sendChatMessageNotification(
@@ -185,6 +149,48 @@ object NotificationService {
             return sendFcmNotification(notificationData)
         } catch (e: Exception) {
             Log.e(TAG, "Error sending chat notification: ${e.message}")
+            return false
+        }
+    }
+
+    /**
+     * Notify a driver that a customer has cancelled an order
+     */
+    suspend fun sendOrderCancellationNotification(
+        driverId: String,
+        orderId: String,
+        message: String
+    ): Boolean {
+        try {
+            // Get driver FCM token
+            val driverDoc = firestore.collection("users").document(driverId).get().await()
+            val fcmToken = driverDoc.getString("fcmToken")
+
+            if (fcmToken.isNullOrEmpty()) {
+                Log.e(TAG, "Driver $driverId has no FCM token")
+                return false
+            }
+
+            // Create notification data payload
+            val notificationData = hashMapOf(
+                "to" to fcmToken,
+                "priority" to "high",
+                "notification" to hashMapOf(
+                    "title" to "Order Cancelled",
+                    "body" to message,
+                    "sound" to "default"
+                ),
+                "data" to hashMapOf(
+                    "orderId" to orderId,
+                    "type" to "order_cancelled",
+                    "click_action" to "OPEN_ORDER_DETAIL"
+                )
+            )
+
+            // Send notification
+            return sendFcmNotification(notificationData)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending cancellation notification: ${e.message}")
             return false
         }
     }
@@ -236,8 +242,9 @@ object NotificationService {
      * In a production app, this would be stored securely or accessed via a backend API
      */
     private fun getFcmServerKey(): String {
-        // WARNING: This is just a placeholder. In a real app, don't hardcode the FCM server key.
-        // Use Firebase Cloud Functions or your own backend server to send notifications securely.
-        return "YOUR_FCM_SERVER_KEY" // Replace with actual key or retrieval method
+        // In a real app, this would be retrieved securely from a server
+        // For this implementation, return a placeholder
+        // Replace with your actual FCM server key for testing
+        return "YOUR_FCM_SERVER_KEY"
     }
 }
