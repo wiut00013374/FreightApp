@@ -1,4 +1,4 @@
-<!-- res/layout/item_order.xml -->
+<?xml version="1.0" encoding="utf-8"?>
 <androidx.cardview.widget.CardView
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -16,25 +16,43 @@
             android:id="@+id/tvOrderOrigin"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Origin" />
+            android:text="From: Origin City"
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/tvOrderDestination"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Destination" />
+            android:text="To: Destination City" />
 
         <TextView
             android:id="@+id/tvOrderPrice"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Price" />
+            android:text="$100.00"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvOrderDate"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Created: Jan 1, 2025" />
 
         <TextView
             android:id="@+id/tvOrderStatus"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Status" />
+            android:text="Status: Pending" />
+
+        <!-- Driver info (shown only when assigned) -->
+        <TextView
+            android:id="@+id/tvDriverInfo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Driver assigned: ..."
+            android:textStyle="italic"
+            android:visibility="gone"
+            android:layout_marginTop="4dp" />
 
         <!-- Buttons container -->
         <LinearLayout
@@ -48,22 +66,20 @@
                 android:layout_width="0dp"
                 android:layout_weight="1"
                 android:layout_height="wrap_content"
-                android:text="Edit" />
-
-            <Button
-                android:id="@+id/btnDeleteOrder"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:text="Delete" />
-            <Button
-                android:id="@+id/btnContactDriver"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Contact Driver" />
-
+                android:text="Edit" /><Button
+            android:id="@+id/btnDeleteOrder"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="Delete" />
         </LinearLayout>
 
-
+        <Button
+            android:id="@+id/btnContactDriver"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Contact Driver"
+            android:visibility="gone"
+            android:layout_marginTop="8dp" />
     </LinearLayout>
 </androidx.cardview.widget.CardView>

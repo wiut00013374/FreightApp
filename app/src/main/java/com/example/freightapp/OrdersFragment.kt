@@ -9,6 +9,7 @@ import android.text.TextWatcher
 import android.util.Log
 import android.view.*
 import android.widget.*
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -21,12 +22,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.*
 
 class OrdersFragment : Fragment(), OrderActionListener {
 
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: OrderAdapter
     private val ordersList = mutableListOf<Order>()
+    private lateinit var emptyView: TextView
+    private lateinit var progressBar: ProgressBar
 
     companion object {
         private const val TAG = "OrdersFragment"
@@ -41,12 +45,20 @@ class OrdersFragment : Fragment(), OrderActionListener {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+
+        // Initialize views
         recyclerView = view.findViewById(R.id.recyclerViewOrders)
+        emptyView = view.findViewById(R.id.tvNoOrders)
+        progressBar = view.findViewById(R.id.progressBar)
+
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
 
         // Pass 'this' as the OrderActionListener
         adapter = OrderAdapter(ordersList, this)
         recyclerView.adapter = adapter
+
+        // Show loading state
+        showLoading(true)
 
         fetchOrders()
     }
@@ -55,13 +67,46 @@ class OrdersFragment : Fragment(), OrderActionListener {
         val currentUid = FirebaseAuth.getInstance().currentUser?.uid
         if (currentUid == null) {
             Log.e(TAG, "User not authenticated!")
+            showEmptyState("Please sign in to view orders")
             return
         }
+
         OrderRepository.listenForCustomerOrders(currentUid) { orders ->
+            // Hide loading
+            showLoading(false)
+
+            if (orders.isEmpty()) {
+                showEmptyState("You don't have any orders yet")
+            } else {
+                showOrders()
+            }
+
+            // Sort orders by timestamp (newest first)
+            val sortedOrders = orders.sortedByDescending { it.timestamp }
+
             ordersList.clear()
-            ordersList.addAll(orders)
+            ordersList.addAll(sortedOrders)
             adapter.notifyDataSetChanged()
         }
+    }
+
+    private fun showLoading(isLoading: Boolean) {
+        progressBar.visibility = if (isLoading) View.VISIBLE else View.GONE
+        recyclerView.visibility = View.GONE
+        emptyView.visibility = View.GONE
+    }
+
+    private fun showEmptyState(message: String) {
+        progressBar.visibility = View.GONE
+        recyclerView.visibility = View.GONE
+        emptyView.visibility = View.VISIBLE
+        emptyView.text = message
+    }
+
+    private fun showOrders() {
+        progressBar.visibility = View.GONE
+        recyclerView.visibility = View.VISIBLE
+        emptyView.visibility = View.GONE
     }
 
     // =========================================
@@ -69,9 +114,7 @@ class OrdersFragment : Fragment(), OrderActionListener {
     // =========================================
     override fun onEditOrder(order: Order) {
         showEditOrderDialog(order)
-    }
-
-    override fun onDeleteOrder(order: Order) {
+    }override fun onDeleteOrder(order: Order) {
         AlertDialog.Builder(requireContext())
             .setTitle("Delete Order")
             .setMessage("Are you sure you want to delete this order?")
@@ -104,7 +147,17 @@ class OrdersFragment : Fragment(), OrderActionListener {
             return
         }
 
+        // Show loading indicator
+        val loadingDialog = AlertDialog.Builder(requireContext())
+            .setView(LayoutInflater.from(context).inflate(R.layout.dialog_loading, null))
+            .setCancelable(false)
+            .create()
+        loadingDialog.show()
+
         ChatRepository.createOrGetChat(orderId, driverUid, customerUid) { chatId ->
+            // Dismiss loading indicator
+            loadingDialog.dismiss()
+
             Log.d("onContactDriver", "chatId=$chatId")
             if (chatId != null) {
                 val fragment = ChatsFragment.newInstance(chatId)
@@ -118,41 +171,6 @@ class OrdersFragment : Fragment(), OrderActionListener {
         }
     }
 
-
-
-
-
-    private fun contactDriver(order: Order) {
-        val driverUid = order.driverUid
-        val orderId = order.id
-        val customerUid = FirebaseAuth.getInstance().currentUser?.uid
-
-        // Use requireContext() for a valid Context in a Fragment.
-        if (driverUid.isNullOrEmpty() || orderId.isBlank() || customerUid.isNullOrEmpty()) {
-            Toast.makeText(requireContext(), "Invalid order data", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        ChatRepository.createOrGetChat(orderId, driverUid, customerUid) { chatId ->
-            if (chatId != null) {
-                val fragment = ChatsFragment.newInstance(chatId)
-                parentFragmentManager.beginTransaction()
-                    .replace(R.id.nav_host_fragment, fragment) // Ensure this container ID exists in your layout
-                    .addToBackStack(null)
-                    .commit()
-            } else {
-                Toast.makeText(requireContext(), "Failed to create chat", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-
-
-
-    // =========================================
-    // EDIT ORDER DIALOG LOGIC (Price Recalc)
-    // (same as your original code)
-    // =========================================
     private fun showEditOrderDialog(order: Order) {
         val dialogView = layoutInflater.inflate(R.layout.dialog_edit_order, null)
         val actvOrigin = dialogView.findViewById<AutoCompleteTextView>(R.id.actvOriginEdit)
@@ -189,9 +207,7 @@ class OrdersFragment : Fragment(), OrderActionListener {
             tvPricePreview.text = "Price: $${String.format("%.2f", newPrice)}"
         }
         // initial calc
-        recalcPriceAndDisplay()
-
-        // ---------------------------------------
+        recalcPriceAndDisplay()// ---------------------------------------
         // SUGGESTION LOGIC for ORIGIN
         // ---------------------------------------
         val handlerOrigin = Handler(Looper.getMainLooper())
@@ -238,9 +254,7 @@ class OrdersFragment : Fragment(), OrderActionListener {
                     recalcPriceAndDisplay()
                 }
             }
-        }
-
-        // ---------------------------------------
+        }// ---------------------------------------
         // SUGGESTION LOGIC for DESTINATION
         // ---------------------------------------
         val handlerDest = Handler(Looper.getMainLooper())
@@ -314,7 +328,6 @@ class OrdersFragment : Fragment(), OrderActionListener {
         }
         parentLayout.addView(dialogView)
         parentLayout.addView(tvPricePreview)
-
         AlertDialog.Builder(requireContext())
             .setTitle("Edit Order")
             .setView(parentLayout)
