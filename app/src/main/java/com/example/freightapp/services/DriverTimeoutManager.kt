@@ -3,7 +3,6 @@ package com.example.freightapp.services
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import com.google.android.gms.tasks.Tasks.await
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -81,6 +80,7 @@ object DriverTimeoutManager {
             }
 
             // Get driver contact info
+            @Suppress("UNCHECKED_CAST")
             val driversContactList = orderDoc.get("driversContactList") as? Map<String, String>
             val currentIndex = orderDoc.getLong("currentDriverIndex") ?: 0
             val lastNotificationTime = orderDoc.getLong("lastDriverNotificationTime") ?: 0L
@@ -95,8 +95,9 @@ object DriverTimeoutManager {
                 Log.d(TAG, "Driver didn't respond in time for order $orderId, moving to next driver")
 
                 // Move to the next driver
-                await(firestore.collection("orders").document(orderId)
-                    .update("currentDriverIndex", currentIndex + 1))
+                firestore.collection("orders").document(orderId)
+                    .update("currentDriverIndex", currentIndex + 1)
+                    .await()
 
                 // Notify the next driver
                 val driverFinder = DriverFinder()

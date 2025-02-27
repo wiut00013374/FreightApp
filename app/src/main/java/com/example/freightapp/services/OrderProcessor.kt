@@ -2,6 +2,7 @@ package com.example.freightapp.services
 
 import android.util.Log
 import com.example.freightapp.Order
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 
@@ -11,6 +12,81 @@ import kotlinx.coroutines.tasks.await
 class OrderProcessor {
     private val TAG = "OrderProcessor"
     private val firestore = FirebaseFirestore.getInstance()
+    private val auth = FirebaseAuth.getInstance()
+
+    /**
+     * Update an order's status
+     */
+    suspend fun updateOrderStatus(orderId: String, status: String): Boolean {
+        return try {
+            firestore.collection("orders").document(orderId)
+                .update("status", status)
+                .await()
+
+            // If this is a completion status, notify the customer
+            if (status == "Delivered" || status == "Completed") {
+                val orderDoc = firestore.collection("orders").document(orderId).get().await()
+                val customerId = orderDoc.getString("uid")
+
+                if (customerId != null) {
+                    NotificationService.sendCustomerOrderNotification(
+                        customerId = customerId,
+                        orderId = orderId,
+                        title = "Order $status",
+                        message = "Your order has been $status. Thank you for using our service!"
+                    )
+                }
+            }
+
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating order status: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Cancel an order by a customer
+     */
+    suspend fun cancelOrder(orderId: String): Boolean {
+        return try {
+            val orderDoc = firestore.collection("orders").document(orderId).get().await()
+            val driverUid = orderDoc.getString("driverUid")
+
+            // Update order status
+            firestore.collection("orders").document(orderId)
+                .update(
+                    mapOf(
+                        "status" to "Cancelled",
+                        "cancelledAt" to System.currentTimeMillis()
+                    )
+                )
+                .await()
+
+            // Notify the driver if one is assigned
+            if (driverUid != null) {
+                val driverDoc = firestore.collection("users").document(driverUid).get().await()
+                val fcmToken = driverDoc.getString("fcmToken")
+
+                if (!fcmToken.isNullOrEmpty()) {
+                    val orderObj = orderDoc.toObject(Order::class.java)
+                    val originCity = orderObj?.originCity ?: "unknown"
+                    val destinationCity = orderObj?.destinationCity ?: "unknown"
+
+                    NotificationService.sendDriverOrderCancellation(
+                        fcmToken = fcmToken,
+                        orderId = orderId,
+                        message = "Order from $originCity to $destinationCity has been cancelled by the customer."
+                    )
+                }
+            }
+
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cancelling order: ${e.message}")
+            false
+        }
+    }
 
     /**
      * Process a new order and start finding drivers
@@ -39,12 +115,16 @@ class OrderProcessor {
 
             return if (driversFound) {
                 Log.d(TAG, "Started driver search process for order ${order.id}")
+
+                // Update order status to indicate search is in progress
+                orderRef.update("status", "Finding Driver").await()
+
                 true
             } else {
                 Log.d(TAG, "No drivers found for order ${order.id}")
 
                 // Update order status to indicate no drivers were found
-                orderRef.update("status", "No Drivers").await()
+                orderRef.update("status", "No Drivers Available").await()
                 false
             }
 
@@ -78,6 +158,7 @@ class OrderProcessor {
             }
 
             // Get the drivers contact list
+            @Suppress("UNCHECKED_CAST")
             val driversContactList = orderDoc.get("driversContactList") as? Map<String, String>
 
             if (driversContactList == null || !driversContactList.containsKey(driverId)) {
@@ -147,4 +228,5 @@ class OrderProcessor {
             return false
         }
     }
-}
+
+/**

@@ -4,9 +4,8 @@ import android.util.Log
 import com.example.freightapp.Order
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.tasks.await
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
@@ -21,6 +20,10 @@ object NotificationService {
 
     /**
      * Send an order notification to a driver
+     * @param fcmToken The driver's FCM token
+     * @param orderId The ID of the order
+     * @param driverId The ID of the driver
+     * @return true if notification was sent successfully
      */
     suspend fun sendDriverOrderNotification(
         fcmToken: String,
@@ -40,118 +43,28 @@ object NotificationService {
             // Format price to two decimal places
             val formattedPrice = String.format("$%.2f", order.totalPrice)
 
-            // Create data payload for notification
+            // Create notification data payload
             val notificationData = hashMapOf(
-                "token" to fcmToken,
-                "title" to "New Order Request",
-                "body" to "From ${order.originCity} to ${order.destinationCity} - $formattedPrice",
-                "orderId" to orderId,
-                "driverId" to driverId,
-                "type" to "order_request",
-                "click_action" to "OPEN_ORDER_DETAIL"
+                "to" to fcmToken,
+                "priority" to "high",
+                "notification" to hashMapOf(
+                    "title" to "New Order Request",
+                    "body" to "From ${order.originCity} to ${order.destinationCity} - $formattedPrice",
+                    "sound" to "default"
+                ),
+                "data" to hashMapOf(
+                    "orderId" to orderId,
+                    "driverId" to driverId,
+                    "type" to "order_request",
+                    "click_action" to "OPEN_ORDER_DETAIL"
+                )
             )
 
-            // Call the Firebase Cloud Function to send notification
-            return withContext(Dispatchers.IO) {
-                try {
-                    val result = functions.getHttpsCallable("sendDriverNotification")
-                        .call(notificationData)
-                        .await()
-
-                    // Check if notification was sent successfully
-                    val resultData = result.data as? Map<*, *>
-                    val success = resultData?.get("success") as? Boolean ?: false
-
-                    if (success) {
-                        Log.d(TAG, "Successfully sent notification to driver $driverId for order $orderId")
-                        true
-                    } else {
-                        Log.e(TAG, "Failed to send notification via cloud function")
-                        false
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error calling sendDriverNotification function: ${e.message}")
-
-                    // Try alternative method if cloud function fails
-                    sendFcmDirectly(fcmToken, order, orderId, driverId)
-                }
-            }
+            // Send notification using FCM API directly
+            return sendFcmNotification(notificationData)
         } catch (e: Exception) {
-            Log.e(TAG, "Error preparing notification data: ${e.message}")
+            Log.e(TAG, "Error sending driver notification: ${e.message}")
             return false
-        }
-    }
-
-    /**
-     * Send FCM notification directly using the FCM HTTP v1 API
-     * This is a fallback method in case the Cloud Function fails
-     */
-    private suspend fun sendFcmDirectly(
-        fcmToken: String,
-        order: Order,
-        orderId: String,
-        driverId: String
-    ): Boolean {
-        return withContext(Dispatchers.IO) {
-            try {
-                // Get your FCM server key from Firebase console
-                val fcmServerKey = "YOUR_FCM_SERVER_KEY" // Store securely, not hardcoded
-
-                // Format price to two decimal places
-                val formattedPrice = String.format("$%.2f", order.totalPrice)
-
-                // Create FCM payload using the HTTP v1 API format
-                val jsonPayload = JSONObject().apply {
-                    put("message", JSONObject().apply {
-                        put("token", fcmToken)
-                        put("notification", JSONObject().apply {
-                            put("title", "New Order Request")
-                            put("body", "From ${order.originCity} to ${order.destinationCity} - $formattedPrice")
-                        })
-                        put("data", JSONObject().apply {
-                            put("orderId", orderId)
-                            put("driverId", driverId)
-                            put("type", "order_request")
-                            put("click_action", "OPEN_ORDER_DETAIL")
-                        })
-                        put("android", JSONObject().apply {
-                            put("priority", "high")
-                            put("notification", JSONObject().apply {
-                                put("click_action", "OPEN_ORDER_DETAIL")
-                                put("channel_id", "order_requests_channel")
-                            })
-                        })
-                    })
-                }
-
-                // FCM HTTP v1 API endpoint
-                val url = URL("https://fcm.googleapis.com/v1/projects/your-project-id/messages:send")
-                val connection = url.openConnection() as HttpsURLConnection
-                connection.requestMethod = "POST"
-                connection.setRequestProperty("Content-Type", "application/json")
-                connection.setRequestProperty("Authorization", "Bearer $fcmServerKey")
-                connection.doOutput = true
-
-                // Write JSON payload to the connection
-                val outputStream = connection.outputStream
-                outputStream.write(jsonPayload.toString().toByteArray())
-                outputStream.flush()
-                outputStream.close()
-
-                // Check response
-                val responseCode = connection.responseCode
-                if (responseCode == HttpsURLConnection.HTTP_OK) {
-                    Log.d(TAG, "Successfully sent FCM directly to driver $driverId")
-                    true
-                } else {
-                    val errorResponse = connection.errorStream.bufferedReader().use { it.readText() }
-                    Log.e(TAG, "FCM direct send failed with code $responseCode: $errorResponse")
-                    false
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error sending FCM directly: ${e.message}")
-                false
-            }
         }
     }
 
@@ -174,30 +87,124 @@ object NotificationService {
                 return false
             }
 
-            // Create data payload for notification
+            // Create notification data payload
             val notificationData = hashMapOf(
-                "token" to fcmToken,
-                "title" to title,
-                "body" to message,
-                "orderId" to orderId,
-                "type" to "order_update",
-                "click_action" to "OPEN_ORDER_DETAIL"
+                "to" to fcmToken,
+                "priority" to "high",
+                "notification" to hashMapOf(
+                    "title" to title,
+                    "body" to message,
+                    "sound" to "default"
+                ),
+                "data" to hashMapOf(
+                    "orderId" to orderId,
+                    "type" to "order_update",
+                    "click_action" to "OPEN_ORDER_DETAIL"
+                )
             )
 
-            // Call the Firebase Cloud Function to send notification
-            val result = functions.getHttpsCallable("sendCustomerNotification")
-                .call(notificationData)
-                .await()
-
-            // Check if notification was sent successfully
-            val resultData = result.data as? Map<*, *>
-            val success = resultData?.get("success") as? Boolean ?: false
-
-            return success
-
+            // Send notification
+            return sendFcmNotification(notificationData)
         } catch (e: Exception) {
             Log.e(TAG, "Error sending customer notification: ${e.message}")
             return false
         }
+    }
+
+    /**
+     * Send a chat message notification
+     */
+    suspend fun sendChatMessageNotification(
+        recipientId: String,
+        chatId: String,
+        senderId: String,
+        senderName: String,
+        message: String
+    ): Boolean {
+        try {
+            // Get recipient FCM token
+            val recipientDoc = firestore.collection("users").document(recipientId).get().await()
+            val fcmToken = recipientDoc.getString("fcmToken")
+
+            if (fcmToken.isNullOrEmpty()) {
+                Log.e(TAG, "User $recipientId has no FCM token")
+                return false
+            }
+
+            // Create notification data payload
+            val notificationData = hashMapOf(
+                "to" to fcmToken,
+                "priority" to "high",
+                "notification" to hashMapOf(
+                    "title" to "New message from $senderName",
+                    "body" to message,
+                    "sound" to "default"
+                ),
+                "data" to hashMapOf(
+                    "chatId" to chatId,
+                    "senderId" to senderId,
+                    "type" to "chat_message",
+                    "click_action" to "OPEN_CHAT"
+                )
+            )
+
+            // Send notification
+            return sendFcmNotification(notificationData)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending chat notification: ${e.message}")
+            return false
+        }
+    }
+
+    /**
+     * Send a notification using the FCM HTTP v1 API
+     */
+    private suspend fun sendFcmNotification(notificationData: Map<String, Any>): Boolean {
+        return try {
+            // Get FCM server key from Firebase console
+            val fcmServerKey = getFcmServerKey()
+
+            // Convert notification data to JSON
+            val jsonPayload = JSONObject(notificationData).toString()
+
+            // FCM API endpoint
+            val url = URL("https://fcm.googleapis.com/fcm/send")
+            val connection = url.openConnection() as HttpsURLConnection
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Authorization", "key=$fcmServerKey")
+            connection.doOutput = true
+
+            // Write JSON payload to the connection
+            val outputStream = connection.outputStream
+            outputStream.write(jsonPayload.toByteArray())
+            outputStream.flush()
+            outputStream.close()
+
+            // Check response
+            val responseCode = connection.responseCode
+            if (responseCode == HttpsURLConnection.HTTP_OK || responseCode == HttpsURLConnection.HTTP_CREATED) {
+                val response = connection.inputStream.bufferedReader().use { it.readText() }
+                Log.d(TAG, "FCM Response: $response")
+                true
+            } else {
+                val errorResponse = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: "Unknown error"
+                Log.e(TAG, "FCM Error: $errorResponse")
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending FCM notification: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Get the FCM server key from secure storage
+     * In a production app, this would be stored securely or accessed via a backend API
+     */
+    private fun getFcmServerKey(): String {
+        // WARNING: This is just a placeholder. In a real app, don't hardcode the FCM server key.
+        // Use Firebase Cloud Functions or your own backend server to send notifications securely.
+        return "YOUR_FCM_SERVER_KEY" // Replace with actual key or retrieval method
     }
 }

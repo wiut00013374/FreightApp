@@ -2,6 +2,7 @@ package com.example.freightapp.services
 
 import android.util.Log
 import com.example.freightapp.Order
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
 import kotlinx.coroutines.tasks.await
@@ -13,6 +14,7 @@ import kotlin.math.*
 class DriverFinder {
     private val TAG = "DriverFinder"
     private val firestore = FirebaseFirestore.getInstance()
+    private val auth = FirebaseAuth.getInstance()
 
     // Configuration
     companion object {
@@ -50,6 +52,11 @@ class DriverFinder {
 
             if (drivers.isEmpty()) {
                 Log.d(TAG, "No available drivers found for order $orderId")
+
+                // Update order status to indicate no drivers found
+                firestore.collection("orders").document(orderId)
+                    .update("status", "No Drivers Available")
+
                 return false
             }
 
@@ -96,32 +103,43 @@ class DriverFinder {
             val driverId = doc.id
 
             // Check if driver has location data
-            val location = driverData["location"] as? GeoPoint
-            if (location != null) {
-                val driverLat = location.latitude
-                val driverLon = location.longitude
+            val locationObj = driverData["location"]
+            val driverLat: Double
+            val driverLon: Double
 
-                // Calculate distance between driver and pickup location
-                val distanceKm = calculateDistance(pickupLat, pickupLon, driverLat, driverLon)
-
-                if (distanceKm <= MAX_SEARCH_DISTANCE_KM) {
-                    // Get driver's FCM token and name
-                    val fcmToken = driverData["fcmToken"] as? String ?: ""
-                    val displayName = driverData["displayName"] as? String ?: "Driver"
-
-                    // Skip drivers without FCM tokens
-                    if (fcmToken.isEmpty()) continue
-
-                    // Add driver to the list with their distance
-                    result.add(
-                        DriverInfo(
-                            id = driverId,
-                            name = displayName,
-                            fcmToken = fcmToken,
-                            distanceKm = distanceKm
-                        )
-                    )
+            // Handle different location formats
+            when (locationObj) {
+                is GeoPoint -> {
+                    driverLat = locationObj.latitude
+                    driverLon = locationObj.longitude
                 }
+                is Map<*, *> -> {
+                    driverLat = (locationObj["latitude"] as? Number)?.toDouble() ?: continue
+                    driverLon = (locationObj["longitude"] as? Number)?.toDouble() ?: continue
+                }
+                else -> continue // Skip drivers without valid location
+            }
+
+            // Calculate distance between driver and pickup location
+            val distanceKm = calculateDistance(pickupLat, pickupLon, driverLat, driverLon)
+
+            if (distanceKm <= MAX_SEARCH_DISTANCE_KM) {
+                // Get driver's FCM token and name
+                val fcmToken = driverData["fcmToken"] as? String ?: ""
+                val displayName = driverData["displayName"] as? String ?: "Driver"
+
+                // Skip drivers without FCM tokens
+                if (fcmToken.isEmpty()) continue
+
+                // Add driver to the list with their distance
+                result.add(
+                    DriverInfo(
+                        id = driverId,
+                        name = displayName,
+                        fcmToken = fcmToken,
+                        distanceKm = distanceKm
+                    )
+                )
             }
         }
 
@@ -173,6 +191,7 @@ class DriverFinder {
             }
 
             // Get the drivers contact list and current index
+            @Suppress("UNCHECKED_CAST")
             val driversContactList = orderData["driversContactList"] as? Map<String, String> ?: run {
                 Log.e(TAG, "No driver contact list found for order $orderId")
                 return false
@@ -186,6 +205,11 @@ class DriverFinder {
             // Check if we've gone through all drivers
             if (currentIndex >= driverIds.size) {
                 Log.d(TAG, "All drivers have been contacted for order $orderId")
+
+                // Update order status to indicate no drivers accepted
+                firestore.collection("orders").document(orderId)
+                    .update("status", "No Drivers Accepted")
+
                 return false
             }
 
