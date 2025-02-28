@@ -9,6 +9,10 @@ import kotlinx.coroutines.tasks.await
 import org.json.JSONObject
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * Service for sending push notifications to drivers and customers
@@ -36,7 +40,15 @@ object NotificationService {
             // Format price to two decimal places
             val formattedPrice = String.format("$%.2f", order.totalPrice)
 
-            // Create notification data payload
+            // Calculate distance
+            val distance = calculateDistance(
+                order.originLat, order.originLon,
+                // Use driver's current location (you'll need to pass this)
+                // For now, use a placeholder
+                order.originLat, order.originLon
+            )
+
+            // Create comprehensive notification data payload
             val notificationData = hashMapOf(
                 "to" to fcmToken,
                 "priority" to "high",
@@ -47,12 +59,16 @@ object NotificationService {
                 ),
                 "data" to hashMapOf(
                     "orderId" to orderId,
+                    "order_id" to orderId, // Note the different key for BroadcastReceiver
                     "driverId" to driverId,
                     "type" to "order_request",
                     "originCity" to order.originCity,
                     "destinationCity" to order.destinationCity,
                     "price" to formattedPrice,
                     "truckType" to order.truckType,
+                    "volume" to order.volume.toString(),
+                    "weight" to order.weight.toString(),
+                    "distance" to String.format("%.2f", distance),
                     "click_action" to "OPEN_ORDER_DETAIL"
                 )
             )
@@ -63,6 +79,21 @@ object NotificationService {
             Log.e(TAG, "Error sending driver notification: ${e.message}")
             return false
         }
+    }
+
+    // Add a helper method to calculate distance
+    private fun calculateDistance(
+        lat1: Double, lon1: Double,
+        lat2: Double, lon2: Double
+    ): Double {
+        val R = 6371.0 // Earth's radius in kilometers
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = sin(dLat / 2) * sin(dLat / 2) +
+                cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
+                sin(dLon / 2) * sin(dLon / 2)
+        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        return R * c
     }
 
     /**

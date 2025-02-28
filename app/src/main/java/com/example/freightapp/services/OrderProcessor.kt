@@ -18,7 +18,7 @@ class OrderProcessor {
 
     // Configuration
     companion object {
-        private const val MAX_SEARCH_DISTANCE_KM = 50.0
+        private const val MAX_SEARCH_DISTANCE_KM = 150.0 // Increased search radius
         private const val MAX_DRIVERS_TO_CONTACT = 10
     }
 
@@ -52,9 +52,9 @@ class OrderProcessor {
             Log.d(TAG, "Order created with ID: ${processedOrder.id}")
 
             // Find and match with nearby drivers
-            findDriversForOrder(processedOrder)
+            val driverMatchResult = findDriversForOrder(processedOrder)
 
-            return Pair(true, processedOrder.id)
+            return Pair(driverMatchResult, processedOrder.id)
 
         } catch (e: Exception) {
             Log.e(TAG, "Error creating order: ${e.message}")
@@ -67,12 +67,29 @@ class OrderProcessor {
      */
     private suspend fun findDriversForOrder(order: Order): Boolean {
         try {
-            // Find nearby available drivers with the matching truck type
+            // Log detailed order matching information
+            Log.d(TAG, "Driver Matching Process Started:")
+            Log.d(TAG, "Order ID: ${order.id}")
+            Log.d(TAG, "Truck Type Required: ${order.truckType}")
+            Log.d(TAG, "Origin Location: (${order.originLat}, ${order.originLon})")
+
+            // Find nearby available drivers
             val availableDrivers = findNearbyDrivers(
                 order.truckType,
                 order.originLat,
                 order.originLon
             )
+
+            // Log drivers found
+            Log.d(TAG, "Total Drivers Found: ${availableDrivers.size}")
+            availableDrivers.forEachIndexed { index, driver ->
+                Log.d(TAG, "Driver #${index + 1}: " +
+                        "ID: ${driver.id}, " +
+                        "Name: ${driver.name}, " +
+                        "Truck: ${driver.truckType}, " +
+                        "Distance: ${driver.distanceKm ?: "Unknown"} km, " +
+                        "FCM Token: ${driver.fcmToken.take(10)}...")
+            }
 
             if (availableDrivers.isEmpty()) {
                 Log.d(TAG, "No available drivers found for order ${order.id}")
@@ -85,9 +102,7 @@ class OrderProcessor {
                 return false
             }
 
-            Log.d(TAG, "Found ${availableDrivers.size} available drivers for order ${order.id}")
-
-            // Create a contacts list with all available drivers (limited to max)
+            // Create a contacts list with available drivers (limited to max)
             val driversToContact = availableDrivers.take(MAX_DRIVERS_TO_CONTACT)
 
             // Create map of driver IDs to contact status
@@ -107,8 +122,7 @@ class OrderProcessor {
                 )
                 .await()
 
-            // The actual notification of drivers will be handled by a Cloud Function
-            // which will be triggered by the changes we just made to the order document
+            Log.d(TAG, "Driver contact process initialized for order ${order.id}")
 
             return true
         } catch (e: Exception) {
@@ -128,121 +142,10 @@ class OrderProcessor {
     }
 
     /**
-     * Find nearby available drivers that match the truck type
+     * Find nearby available drivers with flexible matching
      */
     private suspend fun findNearbyDrivers(
         truckType: String,
-        originLat: Double,
-        originLon: Double
-    ): List<DriverInfo> {
-        try {
-            // Query for available drivers with matching truck type
-            val driversQuery = firestore.collection("users")
-                .whereEqualTo("userType", "driver")
-                .whereEqualTo("available", true)
-                .whereEqualTo("truckType", truckType)
-                .get()
-                .await()
-
-            Log.d(TAG, "Found ${driversQuery.documents.size} potential drivers with matching truck type")
-
-            val drivers = mutableListOf<DriverInfo>()
-
-            // Filter drivers based on location and sort by distance
-            for (doc in driversQuery.documents) {
-                val driverData = doc.data ?: continue
-                val driverId = doc.id
-
-                // Check for FCM token (needed for notifications)
-                val fcmToken = driverData["fcmToken"] as? String ?: continue
-                if (fcmToken.isBlank()) {
-                    Log.d(TAG, "Driver $driverId has no FCM token, skipping")
-                    continue
-                }
-
-                // Extract driver location
-                val locationObj = driverData["location"]
-                val driverLat: Double
-                val driverLon: Double
-                var hasLocation = false
-
-                when (locationObj) {
-                    is GeoPoint -> {
-                        driverLat = locationObj.latitude
-                        driverLon = locationObj.longitude
-                        hasLocation = true
-                    }
-                    is Map<*, *> -> {
-                        val lat = (locationObj["latitude"] as? Number)?.toDouble()
-                        val lon = (locationObj["longitude"] as? Number)?.toDouble()
-                        if (lat != null && lon != null) {
-                            driverLat = lat
-                            driverLon = lon
-                            hasLocation = true
-                        } else {
-                            continue
-                        }
-                    }
-                    else -> {
-                        // If no location data, add with null distance (will be sorted after drivers with known distance)
-                        val driverName = driverData["displayName"] as? String ?: "Driver"
-                        drivers.add(
-                            DriverInfo(
-                                id = driverId,
-                                name = driverName,
-                                fcmToken = fcmToken,
-                                distanceKm = null
-                            )
-                        )
-                        continue
-                    }
-                }
-
-                // Calculate distance to pickup point
-                if (hasLocation) {
-                    val distanceKm = calculateDistance(
-                        originLat, originLon,
-                        driverLat, driverLon
-                    )
-
-                    // Only include drivers within the search radius
-                    if (distanceKm <= MAX_SEARCH_DISTANCE_KM) {
-                        val driverName = driverData["displayName"] as? String ?: "Driver"
-                        drivers.add(
-                            DriverInfo(
-                                id = driverId,
-                                name = driverName,
-                                fcmToken = fcmToken,
-                                distanceKm = distanceKm
-                            )
-                        )
-                    }
-                }
-            }
-
-            // If no drivers with matching truck type, try to find any available drivers
-            if (drivers.isEmpty()) {
-                return findAnyAvailableDrivers(originLat, originLon)
-            }
-
-            // Sort by distance (closest first, null distance last)
-            return drivers.sortedWith(compareBy(
-                // Sort nulls last
-                { it.distanceKm == null },
-                // Then sort by distance
-                { it.distanceKm ?: Double.MAX_VALUE }
-            ))
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Error finding nearby drivers: ${e.message}")
-            return emptyList()
-        }
-    }
-
-    /**
-     * Find any available drivers if no matching truck type is found
-     */
-    private suspend fun findAnyAvailableDrivers(
         originLat: Double,
         originLon: Double
     ): List<DriverInfo> {
@@ -254,38 +157,38 @@ class OrderProcessor {
                 .get()
                 .await()
 
-            Log.d(TAG, "Searching for any available drivers, found ${driversQuery.documents.size}")
+            Log.d(TAG, "Total potential drivers found: ${driversQuery.documents.size}")
 
             val drivers = mutableListOf<DriverInfo>()
 
-            // Process each driver (similar to findNearbyDrivers but without truck type filter)
+            // Filter drivers based on location and truck type
             for (doc in driversQuery.documents) {
                 val driverData = doc.data ?: continue
                 val driverId = doc.id
+
+                // Check for FCM token
                 val fcmToken = driverData["fcmToken"] as? String ?: continue
-
-                if (fcmToken.isBlank()) continue
-
-                // Process location and calculate distance as in findNearbyDrivers
-                val locationObj = driverData["location"]
-                val driverName = driverData["displayName"] as? String ?: "Driver"
-
-                if (locationObj == null) {
-                    // Add without location data
-                    drivers.add(
-                        DriverInfo(
-                            id = driverId,
-                            name = driverName,
-                            fcmToken = fcmToken,
-                            distanceKm = null
-                        )
-                    )
+                if (fcmToken.isBlank()) {
+                    Log.d(TAG, "Driver $driverId has no FCM token, skipping")
                     continue
                 }
 
+                // Truck type validation
+                val driverTruckType = driverData["truckType"] as? String ?: continue
+                if (!isTruckTypeSuitable(truckType, driverTruckType)) {
+                    Log.d(TAG, "Driver $driverId truck type ($driverTruckType) not suitable for $truckType")
+                    continue
+                }
+
+                // Extract driver location
+                val locationObj = driverData["location"]
+                val driverName = driverData["displayName"] as? String ?: "Driver"
+
+                // Handle location scenarios
+                var distanceKm: Double? = null
+                var hasLocation = false
                 var driverLat = 0.0
                 var driverLon = 0.0
-                var hasLocation = false
 
                 when (locationObj) {
                     is GeoPoint -> {
@@ -304,45 +207,57 @@ class OrderProcessor {
                     }
                 }
 
+                // Calculate distance if location is available
                 if (hasLocation) {
-                    val distanceKm = calculateDistance(
+                    distanceKm = calculateDistance(
                         originLat, originLon,
                         driverLat, driverLon
                     )
 
-                    if (distanceKm <= MAX_SEARCH_DISTANCE_KM) {
-                        drivers.add(
-                            DriverInfo(
-                                id = driverId,
-                                name = driverName,
-                                fcmToken = fcmToken,
-                                distanceKm = distanceKm
-                            )
-                        )
+                    // Check distance constraint
+                    if (distanceKm > MAX_SEARCH_DISTANCE_KM) {
+                        Log.d(TAG, "Driver $driverId too far: $distanceKm km")
+                        continue
                     }
-                } else {
-                    // Add without distance
-                    drivers.add(
-                        DriverInfo(
-                            id = driverId,
-                            name = driverName,
-                            fcmToken = fcmToken,
-                            distanceKm = null
-                        )
-                    )
                 }
+
+                // Add driver to potential list
+                drivers.add(
+                    DriverInfo(
+                        id = driverId,
+                        name = driverName,
+                        fcmToken = fcmToken,
+                        distanceKm = distanceKm,
+                        truckType = driverTruckType
+                    )
+                )
             }
 
-            // Sort as before
+            // Sort drivers by distance (closest first, nulls last)
             return drivers.sortedWith(compareBy(
                 { it.distanceKm == null },
                 { it.distanceKm ?: Double.MAX_VALUE }
             ))
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error finding any available drivers: ${e.message}")
+            Log.e(TAG, "Error finding nearby drivers: ${e.message}")
             return emptyList()
         }
+    }
+
+    /**
+     * Flexible truck type matching logic
+     */
+    private fun isTruckTypeSuitable(requestedType: String, driverType: String): Boolean {
+        val truckTypeHierarchy = mapOf(
+            "Small" to listOf("Small"),
+            "Medium" to listOf("Small", "Medium"),
+            "Large" to listOf("Small", "Medium", "Large"),
+            "Refrigerated" to listOf("Refrigerated"),
+            "Flatbed" to listOf("Flatbed")
+        )
+
+        return truckTypeHierarchy[requestedType]?.contains(driverType) == true
     }
 
     /**
@@ -384,5 +299,6 @@ data class DriverInfo(
     val id: String,
     val name: String,
     val fcmToken: String,
-    val distanceKm: Double?  // null if distance is unknown
+    val distanceKm: Double?,
+    val truckType: String
 )
