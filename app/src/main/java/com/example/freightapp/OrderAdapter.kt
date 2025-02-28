@@ -7,6 +7,7 @@ import android.widget.Button
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
+import com.example.freightapp.model.Order
 import com.example.freightapp.repos.OrderActionListener
 import java.text.SimpleDateFormat
 import java.util.*

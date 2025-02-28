@@ -1,14 +1,17 @@
 package com.example.freightapp.services
 
 import android.util.Log
-import com.example.freightapp.Order
 import com.example.freightapp.model.Chat
 import com.example.freightapp.model.Message
+import com.example.freightapp.model.Order
 import com.example.freightapp.repos.ChatRepository
 import com.example.freightapp.utils.NotificationHandler
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Service for handling Firebase Cloud Messaging notifications
@@ -25,18 +28,9 @@ class FirebaseMessagingService : FirebaseMessagingService() {
         super.onNewToken(token)
         Log.d(TAG, "New FCM token: $token")
 
-        // Save the token to Firestore for the current user
-        val currentUserId = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
-        if (currentUserId != null) {
-            firestore.collection("users")
-                .document(currentUserId)
-                .update("fcmToken", token)
-                .addOnSuccessListener {
-                    Log.d(TAG, "FCM token saved to Firestore")
-                }
-                .addOnFailureListener { e ->
-                    Log.e(TAG, "Error saving FCM token: ${e.message}")
-                }
+        // Use coroutine to update token
+        CoroutineScope(Dispatchers.IO).launch {
+            FirebaseV1ApiService.updateUserToken(token)
         }
     }
 

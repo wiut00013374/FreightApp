@@ -1,5 +1,6 @@
 package com.example.freightapp
 
+import com.example.freightapp.model.Order
 import com.google.firebase.firestore.FirebaseFirestore
 
 object OrderRepository {

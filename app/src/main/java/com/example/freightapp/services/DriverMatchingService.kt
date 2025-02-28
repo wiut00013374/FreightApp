@@ -1,7 +1,7 @@
 package com.example.freightapp.services
 
 import android.util.Log
-import com.example.freightapp.Order
+import com.example.freightapp.model.Order
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint

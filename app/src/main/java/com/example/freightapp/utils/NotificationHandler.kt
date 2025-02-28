@@ -12,10 +12,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import android.Manifest
 import com.example.freightapp.HomeActivity
-import com.example.freightapp.Order
 import com.example.freightapp.R
 import com.example.freightapp.model.Chat
 import com.example.freightapp.model.Message
+import com.example.freightapp.model.Order
 
 /**
  * Utility class for handling push notifications

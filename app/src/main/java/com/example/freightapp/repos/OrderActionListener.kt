@@ -1,6 +1,6 @@
 package com.example.freightapp.repos
 
-import com.example.freightapp.Order
+import com.example.freightapp.model.Order
 
 interface OrderActionListener {
     fun onEditOrder(order: Order)

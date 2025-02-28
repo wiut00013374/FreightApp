@@ -1,7 +1,7 @@
 package com.example.freightapp.services
 
 import android.util.Log
-import com.example.freightapp.Order
+import com.example.freightapp.model.Order
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
@@ -21,6 +21,29 @@ class DriverFinder {
         private const val MAX_SEARCH_DISTANCE_KM = 30.0 // Maximum search radius in kilometers
         private const val MAX_DRIVERS_TO_CONTACT = 10 // Maximum number of drivers to notify for one order
         private const val DRIVER_NOTIFICATION_TIMEOUT_MS = 60000L // 60 seconds before moving to next driver
+    }
+    object DriverTimeoutWorker {
+        /**
+         * Schedule a timeout check for driver response
+         * @param orderId The ID of the order to check
+         * @param timeoutMs The timeout in milliseconds
+         */
+        fun scheduleDriverResponseTimeout(orderId: String, timeoutMs: Long) {
+            val workData = androidx.work.workDataOf("orderId" to orderId)
+
+            val timeoutWork = androidx.work.OneTimeWorkRequestBuilder<com.example.freightapp.services.DriverTimeoutWorker>()
+                .setInitialDelay(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .setInputData(workData)
+                .addTag("driver_timeout_$orderId")
+                .build()
+
+            androidx.work.WorkManager.getInstance()
+                .enqueueUniqueWork(
+                    "driver_timeout_$orderId",
+                    androidx.work.ExistingWorkPolicy.REPLACE,
+                    timeoutWork
+                )
+        }
     }
 
     /**

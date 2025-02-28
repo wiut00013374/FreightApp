@@ -1,36 +1,31 @@
 package com.example.freightapp.services
 
+import android.content.Context
 import android.util.Log
-import com.example.freightapp.Order
+import com.example.freightapp.model.Order
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 
-class OrderProcessor {
+class OrderProcessor(private val context: Context) {
     private val TAG = "OrderProcessor"
     private val firestore = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
-    private val orderMatcher = OrderMatcher()
+    private val orderMatcher = OrderMatcher(context)
 
     suspend fun createOrder(order: Order): Pair<Boolean, String?> {
         return try {
             validateOrder(order)
-
             val orderRef = firestore.collection("orders").document()
-
             val processedOrder = order.copy(
                 id = orderRef.id,
                 uid = auth.currentUser?.uid ?: throw IllegalStateException("User not authenticated"),
                 status = "Looking For Driver",
                 timestamp = System.currentTimeMillis()
             )
-
             orderRef.set(processedOrder).await()
-
             Log.d(TAG, "Order created with ID: ${processedOrder.id}")
-
             val driverAssigned = assignDriverToOrder(processedOrder)
-
             Pair(true, processedOrder.id)
         } catch (e: Exception) {
             Log.e(TAG, "Error creating order: ${e.message}")

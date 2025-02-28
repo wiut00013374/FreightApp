@@ -12,6 +12,11 @@ class DriverTimeoutWorker(
 ) : CoroutineWorker(context, params) {
 
     private val firestore = FirebaseFirestore.getInstance()
+    private val orderMatcher = OrderMatcher()
+
+    companion object {
+        private const val DRIVER_RESPONSE_TIMEOUT_MS = 60000L // 60 seconds
+    }
 
     override suspend fun doWork(): Result {
         val orderId = inputData.getString("orderId") ?: return Result.failure()
@@ -25,18 +30,25 @@ class DriverTimeoutWorker(
 
             val driverUid = orderDoc.getString("driverUid")
             if (driverUid != null) {
+                // Order already has a driver assigned, nothing to do
                 return Result.success()
             }
 
             val lastNotificationTime = orderDoc.getLong("lastDriverNotificationTime") ?: 0L
             val currentTime = System.currentTimeMillis()
 
-            if (currentTime - lastNotificationTime >= OrderMatcher.DRIVER_RESPONSE_TIMEOUT_SECONDS * 1000) {
+            if (currentTime - lastNotificationTime >= DRIVER_RESPONSE_TIMEOUT_MS) {
                 val currentIndex = orderDoc.getLong("currentDriverIndex")?.toInt() ?: 0
+
+                // Update the driver index to move to the next driver
                 firestore.collection("orders").document(orderId)
-                    .update("currentDriverIndex" to currentIndex + 1)
+                    .update(mapOf(
+                        "currentDriverIndex" to currentIndex + 1
+                    ))
                     .await()
-                OrderMatcher().notifyNextDriver(orderId)
+
+                // Notify the next driver in the queue
+                orderMatcher.notifyNextDriver(orderId)
             }
 
             return Result.success()

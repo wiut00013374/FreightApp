@@ -98,6 +98,8 @@ dependencies {
     implementation("com.google.dagger:hilt-android:2.51.1")
     kapt("com.google.dagger:hilt-android-compiler:2.51.1")
     implementation("com.google.firebase:firebase-messaging:24.1.0")
+    implementation ("com.google.firebase:firebase-admin:9.1.1")
+    implementation ("com.google.auth:google-auth-library-oauth2-http:1.19.0")
 }
 kapt {
     correctErrorTypes = true

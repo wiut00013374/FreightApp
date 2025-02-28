@@ -1,4 +1,4 @@
-package com.example.freightapp
+package com.example.freightapp.model
 
 data class Order(
     var id: String = "",
@@ -15,5 +15,9 @@ data class Order(
     var volume: Double = 0.0,
     var weight: Double = 0.0,
     var status: String = "Pending",
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val driversContactList: MutableMap<String, String> = mutableMapOf(),
+    val lastDriverNotificationTime: Long = 0L,
+    val currentDriverIndex: Int = 0,
+    val acceptedAt: Long = 0L
 )

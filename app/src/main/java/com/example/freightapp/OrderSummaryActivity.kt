@@ -9,11 +9,13 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.example.freightapp.model.Order
 import com.example.freightapp.services.OrderProcessor
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -120,6 +122,15 @@ class OrderSummaryActivity : AppCompatActivity() {
         }
     }
 
+    private fun hideSearchingForDriverUI() {
+        progressBar.visibility = View.GONE
+        tvSearchStatus.visibility = View.GONE
+        btnConfirmOrder.isEnabled = true
+    }
+
+    // OrderSummaryActivity.kt updates
+// Add these functions to your existing OrderSummaryActivity.kt
+
     private fun showSearchingForDriverUI() {
         progressBar.visibility = View.VISIBLE
         tvSearchStatus.visibility = View.VISIBLE
@@ -127,21 +138,13 @@ class OrderSummaryActivity : AppCompatActivity() {
         btnConfirmOrder.isEnabled = false
     }
 
-    private fun hideSearchingForDriverUI() {
-        progressBar.visibility = View.GONE
-        tvSearchStatus.visibility = View.GONE
-        btnConfirmOrder.isEnabled = true
-    }
-
     private fun updateSearchStatus(status: String) {
         tvSearchStatus.text = status
     }
 
     private fun setupOrderStatusListener(orderId: String) {
-        // Remove any existing listener
         orderStatusListener?.remove()
 
-        // Create new listener for order status
         orderStatusListener = FirebaseFirestore.getInstance()
             .collection("orders")
             .document(orderId)
@@ -160,22 +163,17 @@ class OrderSummaryActivity : AppCompatActivity() {
                             updateSearchStatus("Looking for a driver...")
                         }
                         "Accepted" -> {
-                            // A driver has accepted the order
                             updateSearchStatus("Driver found! Preparing your order...")
                             progressBar.visibility = View.GONE
 
-                            // Get driver details
                             if (driverUid != null) {
                                 CoroutineScope(Dispatchers.Main).launch {
                                     getDriverDetails(driverUid)
                                 }
                             }
 
-                            // Navigate to orders screen after a short delay
                             CoroutineScope(Dispatchers.Main).launch {
-                                withContext(Dispatchers.IO) {
-                                    kotlinx.coroutines.delay(3000)
-                                }
+                                delay(3000)
                                 navigateToOrdersScreen()
                             }
                         }
@@ -236,4 +234,5 @@ class OrderSummaryActivity : AppCompatActivity() {
         // Remove order status listener
         orderStatusListener?.remove()
     }
+
 }
