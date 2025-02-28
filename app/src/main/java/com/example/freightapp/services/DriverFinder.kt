@@ -275,7 +275,7 @@ class DriverFinder {
                 Log.d(TAG, "Successfully notified driver $driverId for order $orderId")
 
                 // Schedule a check for timeout
-                DriverTimeoutManager.scheduleDriverResponseTimeout(orderId, DRIVER_NOTIFICATION_TIMEOUT_MS)
+                DriverTimeoutWorker.scheduleDriverResponseTimeout(orderId, DRIVER_NOTIFICATION_TIMEOUT_MS)
 
                 return true
             } else {
