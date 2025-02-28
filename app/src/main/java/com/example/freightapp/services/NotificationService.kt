@@ -3,6 +3,7 @@ package com.example.freightapp.services
 import android.content.Context
 import android.util.Log
 import com.example.freightapp.model.Order
+import com.example.freightapp.utils.FirebaseSecretsManager
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 import org.json.JSONObject
@@ -15,10 +16,7 @@ object NotificationService {
     private val firestore = FirebaseFirestore.getInstance()
     private const val FCM_API_URL = "https://fcm.googleapis.com/fcm/send"
 
-    // Server key should be stored securely - here it's a placeholder
-    private const val SERVER_KEY = "YOUR_SERVER_KEY" // This should be replaced with proper secure storage
-
-    suspend fun sendDriverOrderNotification(
+    fun sendDriverOrderNotification(
         context: Context,
         fcmToken: String,
         orderId: String,
@@ -55,7 +53,7 @@ object NotificationService {
                 put("data", data)
             }
 
-            sendFcmNotification(payload.toString())
+            sendFcmNotification(context, payload.toString())
         } catch (e: Exception) {
             Log.e(TAG, "Error sending driver notification: ${e.message}")
             false
@@ -94,21 +92,23 @@ object NotificationService {
                 put("data", data)
             }
 
-            sendFcmNotification(payload.toString())
+            sendFcmNotification(context, payload.toString())
         } catch (e: Exception) {
             Log.e(TAG, "Error sending customer notification: ${e.message}")
             false
         }
     }
 
-    private fun sendFcmNotification(jsonPayload: String): Boolean {
+    private fun sendFcmNotification(context: Context, jsonPayload: String): Boolean {
         return try {
+            val serverKey = FirebaseSecretsManager.getFCMServerKey(context)
+
             val url = URL(FCM_API_URL)
             val connection = url.openConnection() as HttpsURLConnection
 
             connection.requestMethod = "POST"
             connection.setRequestProperty("Content-Type", "application/json")
-            connection.setRequestProperty("Authorization", "key=$SERVER_KEY")
+            connection.setRequestProperty("Authorization", "key=$serverKey")
             connection.doOutput = true
 
             val outputStream = OutputStreamWriter(connection.outputStream)
