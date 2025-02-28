@@ -276,6 +276,6 @@ object NotificationService {
         // In a real app, this would be retrieved securely from a server
         // For this implementation, return a placeholder
         // Replace with your actual FCM server key for testing
-        return "YOUR_FCM_SERVER_KEY"
+        return "kc0EXvGfZts7dy8WtjKVBhufYwYuN0g29nZa0s8_YqE"
     }
 }
