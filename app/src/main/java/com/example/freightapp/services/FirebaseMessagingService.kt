@@ -30,7 +30,11 @@ class FirebaseMessagingService : FirebaseMessagingService() {
 
         // Use coroutine to update token
         CoroutineScope(Dispatchers.IO).launch {
-            FirebaseV1ApiService.updateUserToken(token)
+            try {
+                FirebaseV1ApiService.updateUserToken(token)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating FCM token: ${e.message}")
+            }
         }
     }
 

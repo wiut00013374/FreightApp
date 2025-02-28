@@ -18,6 +18,7 @@ import com.example.freightapp.helpers.PriceCalculatorHelper
 import com.example.freightapp.model.Order
 import com.example.freightapp.repos.ChatRepository
 import com.example.freightapp.repos.OrderActionListener
+import com.example.freightapp.repos.OrderRepository
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

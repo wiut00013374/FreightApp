@@ -1,17 +1,22 @@
 package com.example.freightapp.services
 
+import android.content.Context
 import android.util.Log
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.example.freightapp.model.Order
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
 import kotlinx.coroutines.tasks.await
+import java.util.concurrent.TimeUnit
 import kotlin.math.*
 
 /**
  * Service to find and match orders with nearby drivers
  */
-class DriverFinder {
+class DriverFinder(private val context: Context) {
     private val TAG = "DriverFinder"
     private val firestore = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
@@ -21,23 +26,23 @@ class DriverFinder {
         private const val MAX_SEARCH_DISTANCE_KM = 30.0 // Maximum search radius in kilometers
         private const val MAX_DRIVERS_TO_CONTACT = 10 // Maximum number of drivers to notify for one order
         private const val DRIVER_NOTIFICATION_TIMEOUT_MS = 60000L // 60 seconds before moving to next driver
-    }
-    object DriverTimeoutWorker {
+
         /**
          * Schedule a timeout check for driver response
+         * @param context Application context
          * @param orderId The ID of the order to check
          * @param timeoutMs The timeout in milliseconds
          */
-        fun scheduleDriverResponseTimeout(orderId: String, timeoutMs: Long) {
-            val workData = androidx.work.workDataOf("orderId" to orderId)
+        fun scheduleDriverResponseTimeout(context: Context, orderId: String, timeoutMs: Long) {
+            val workData = workDataOf("orderId" to orderId)
 
-            val timeoutWork = androidx.work.OneTimeWorkRequestBuilder<com.example.freightapp.services.DriverTimeoutWorker>()
-                .setInitialDelay(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+            val timeoutWork = OneTimeWorkRequestBuilder<DriverTimeoutWorker>()
+                .setInitialDelay(timeoutMs, TimeUnit.MILLISECONDS)
                 .setInputData(workData)
                 .addTag("driver_timeout_$orderId")
                 .build()
 
-            androidx.work.WorkManager.getInstance()
+            WorkManager.getInstance(context)
                 .enqueueUniqueWork(
                     "driver_timeout_$orderId",
                     androidx.work.ExistingWorkPolicy.REPLACE,
@@ -286,19 +291,23 @@ class DriverFinder {
                 )
                 .await()
 
+            // Get the order object for notification
+            val order = orderDoc.toObject(Order::class.java) ?: return false
+
             // Send notification to the driver using FCM
             val success = NotificationService.sendDriverOrderNotification(
-                context = context,  // Pass the stored context
+                context = context,
                 fcmToken = fcmToken,
                 orderId = orderId,
                 driverId = driverId,
-                order = order  // Use the fetched order instead of Order()
+                order = order
             )
+
             if (success) {
                 Log.d(TAG, "Successfully notified driver $driverId for order $orderId")
 
                 // Schedule a check for timeout
-                DriverTimeoutWorker.scheduleDriverResponseTimeout(orderId, DRIVER_NOTIFICATION_TIMEOUT_MS)
+                scheduleDriverResponseTimeout(context, orderId, DRIVER_NOTIFICATION_TIMEOUT_MS)
 
                 return true
             } else {

@@ -25,16 +25,16 @@ class OrderProcessor(private val context: Context) {
             )
             orderRef.set(processedOrder).await()
             Log.d(TAG, "Order created with ID: ${processedOrder.id}")
-            val driverAssigned = assignDriverToOrder(processedOrder)
+
+            // Try to find drivers for the order
+            val driverAssigned = orderMatcher.matchOrderToDrivers(processedOrder)
+            Log.d(TAG, "Driver matching process initialized: $driverAssigned")
+
             Pair(true, processedOrder.id)
         } catch (e: Exception) {
             Log.e(TAG, "Error creating order: ${e.message}")
             Pair(false, null)
         }
-    }
-
-    private suspend fun assignDriverToOrder(order: Order): Boolean {
-        return orderMatcher.matchOrderToDrivers(order)
     }
 
     private fun validateOrder(order: Order) {

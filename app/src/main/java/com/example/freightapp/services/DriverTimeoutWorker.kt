@@ -12,7 +12,7 @@ class DriverTimeoutWorker(
 ) : CoroutineWorker(context, params) {
 
     private val firestore = FirebaseFirestore.getInstance()
-    private val orderMatcher = OrderMatcher()
+    private val orderMatcher = OrderMatcher(context)
 
     companion object {
         private const val DRIVER_RESPONSE_TIMEOUT_MS = 60000L // 60 seconds

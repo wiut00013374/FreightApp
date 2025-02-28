@@ -1,7 +1,8 @@
-package com.example.freightapp
+package com.example.freightapp.repos
 
 import com.example.freightapp.model.Order
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
 
 object OrderRepository {
     private val firestore = FirebaseFirestore.getInstance()
@@ -20,9 +21,10 @@ object OrderRepository {
     fun listenForCustomerOrders(customerUid: String, onOrdersUpdate: (List<Order>) -> Unit) {
         firestore.collection(COLLECTION)
             .whereEqualTo("uid", customerUid)
+            .orderBy("timestamp", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshots, error ->
                 if (error != null) {
-                    // Log or handle
+                    onOrdersUpdate(emptyList())
                     return@addSnapshotListener
                 }
                 val orders = snapshots?.documents?.mapNotNull { doc ->
@@ -56,5 +58,29 @@ object OrderRepository {
             .delete()
             .addOnSuccessListener { onComplete(true) }
             .addOnFailureListener { onComplete(false) }
+    }
+
+    // GET SINGLE ORDER
+    fun getOrder(orderId: String, onComplete: (Order?) -> Unit) {
+        if (orderId.isBlank()) {
+            onComplete(null)
+            return
+        }
+
+        firestore.collection(COLLECTION).document(orderId)
+            .get()
+            .addOnSuccessListener { document ->
+                if (document != null && document.exists()) {
+                    val order = document.toObject(Order::class.java)?.apply {
+                        id = document.id
+                    }
+                    onComplete(order)
+                } else {
+                    onComplete(null)
+                }
+            }
+            .addOnFailureListener {
+                onComplete(null)
+            }
     }
 }

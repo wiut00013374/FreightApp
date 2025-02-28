@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.net.URL
+import java.net.URLEncoder
 
 object NominatimHelper {
     private const val TAG = "NominatimHelper"
@@ -21,10 +22,15 @@ object NominatimHelper {
         // Run on IO dispatcher so we don't block the main thread
         return withContext(Dispatchers.IO) {
             try {
-                val urlStr = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=$query"
-                val response = URL(urlStr).readText()
+                val encodedQuery = URLEncoder.encode(query, "UTF-8")
+                val urlStr = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=$encodedQuery"
+                val connection = URL(urlStr).openConnection()
+                connection.setRequestProperty("User-Agent", "FreightApp-Android")
+
+                val response = connection.getInputStream().bufferedReader().use { it.readText() }
                 val jsonArray = JSONArray(response)
                 val results = mutableListOf<NominatimSuggestion>()
+
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
                     results.add(
@@ -39,6 +45,26 @@ object NominatimHelper {
             } catch (e: Exception) {
                 Log.e(TAG, "Forward geocode failed: ${e.message}")
                 emptyList()
+            }
+        }
+    }
+
+    /**
+     * Reverse geocode: Get address from coordinates
+     */
+    suspend fun reverseGeocode(lat: Double, lon: Double): String? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val urlStr = "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=$lat&lon=$lon"
+                val connection = URL(urlStr).openConnection()
+                connection.setRequestProperty("User-Agent", "FreightApp-Android")
+
+                val response = connection.getInputStream().bufferedReader().use { it.readText() }
+                val jsonObj = org.json.JSONObject(response)
+                jsonObj.optString("display_name")
+            } catch (e: Exception) {
+                Log.e(TAG, "Reverse geocode failed: ${e.message}")
+                null
             }
         }
     }

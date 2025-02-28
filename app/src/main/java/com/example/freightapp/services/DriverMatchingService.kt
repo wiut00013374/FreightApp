@@ -1,5 +1,6 @@
 package com.example.freightapp.services
 
+import android.content.Context
 import android.util.Log
 import com.example.freightapp.model.Order
 import com.google.firebase.auth.FirebaseAuth
@@ -8,10 +9,11 @@ import com.google.firebase.firestore.GeoPoint
 import kotlinx.coroutines.tasks.await
 import kotlin.math.*
 
-class DriverMatchingService {
+class DriverMatchingService(private val context: Context) {
     private val TAG = "DriverMatchingService"
     private val firestore = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
+    private val orderMatcher = OrderMatcher(context)
 
     // Configuration
     companion object {
@@ -19,7 +21,7 @@ class DriverMatchingService {
         private const val MAX_DRIVERS_TO_CONTACT = 5
     }
 
-    suspend fun findDriversForOrder(order: Order): List<DriverInfo> {
+    suspend fun findDriversForOrder(order: Order): List<DriverFinder.DriverInfo> {
         try {
             Log.d(TAG, "Starting driver search for order ${order.id}")
             Log.d(TAG, "Order details: truckType=${order.truckType}, origin=[${order.originLat}, ${order.originLon}]")
@@ -43,14 +45,14 @@ class DriverMatchingService {
 
             Log.d(TAG, "Found ${driversQuery.documents.size} drivers matching truck type: ${order.truckType}")
 
-            val drivers = mutableListOf<DriverInfo>()
+            val drivers = mutableListOf<DriverFinder.DriverInfo>()
 
             // Process each potential driver
             for (doc in driversQuery.documents) {
                 val driverData = doc.data ?: continue
                 val driverId = doc.id
 
-                Log.d(TAG, "Processing driver $driverId: ${driverData["driverName"] ?: "Unknown Driver"}")
+                Log.d(TAG, "Processing driver $driverId: ${driverData["displayName"] ?: "Unknown Driver"}")
 
                 // Check FCM token
                 val fcmToken = driverData["fcmToken"] as? String
@@ -91,9 +93,9 @@ class DriverMatchingService {
 
                 // Include driver even if somewhat far away (we'll sort by distance later)
                 if (distance <= MAX_SEARCH_DISTANCE_KM) {
-                    val driverName = driverData["driverName"] as? String ?: "Driver"
+                    val driverName = driverData["displayName"] as? String ?: "Driver"
                     drivers.add(
-                        DriverInfo(
+                        DriverFinder.DriverInfo(
                             id = driverId,
                             name = driverName,
                             fcmToken = fcmToken,
@@ -118,7 +120,7 @@ class DriverMatchingService {
         }
     }
 
-    suspend fun setupDriverContactProcess(orderId: String, drivers: List<DriverInfo>) {
+    suspend fun setupDriverContactProcess(orderId: String, drivers: List<DriverFinder.DriverInfo>) {
         try {
             Log.d(TAG, "Setting up driver contact process for order $orderId with ${drivers.size} drivers")
 
@@ -146,7 +148,7 @@ class DriverMatchingService {
 
             // Notify first driver if any are available
             if (drivers.isNotEmpty()) {
-                notifyNextDriver(orderId)
+                orderMatcher.notifyNextDriver(orderId)
             } else {
                 Log.d(TAG, "No drivers available for order $orderId")
                 firestore.collection("orders").document(orderId)
@@ -168,18 +170,4 @@ class DriverMatchingService {
         val c = 2 * atan2(sqrt(a), sqrt(1 - a))
         return R * c
     }
-
-    // Additional methods for notifying drivers...
-    suspend fun notifyNextDriver(orderId: String): Boolean {
-        // Implementation with additional logging
-        // ...
-        return true
-    }
 }
-
-data class DriverInfo(
-    val id: String,
-    val name: String,
-    val fcmToken: String,
-    val distanceKm: Double
-)

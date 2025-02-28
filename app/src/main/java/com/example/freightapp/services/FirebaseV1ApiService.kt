@@ -2,6 +2,7 @@ package com.example.freightapp.services
 
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.tasks.await
@@ -9,6 +10,7 @@ import kotlinx.coroutines.tasks.await
 class FirebaseV1ApiService {
     companion object {
         private const val TAG = "FirebaseV1ApiService"
+        private val firestore = FirebaseFirestore.getInstance()
 
         suspend fun sendV1Notification(
             token: String,
