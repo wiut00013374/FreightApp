@@ -9,7 +9,6 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import com.example.freightapp.model.Order
 import com.example.freightapp.services.OrderProcessor
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -21,7 +20,8 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 class OrderSummaryActivity : AppCompatActivity() {
-    private val orderProcessor = OrderProcessor()
+    private val orderProcessor by lazy { OrderProcessor(this) }
+
     private lateinit var progressBar: ProgressBar
     private lateinit var tvSearchStatus: TextView
     private lateinit var btnConfirmOrder: Button
@@ -45,7 +45,7 @@ class OrderSummaryActivity : AppCompatActivity() {
         // Reference new UI elements for driver search
         progressBar = findViewById(R.id.progressBarDriverSearch)
         tvSearchStatus = findViewById(R.id.tvSearchStatus)
-        btnConfirmOrder = findViewById<Button>(R.id.btnConfirmOrder)
+        btnConfirmOrder = findViewById(R.id.btnConfirmOrder)
 
         // Initially hide progress bar and status text
         progressBar.visibility = View.GONE
@@ -81,7 +81,7 @@ class OrderSummaryActivity : AppCompatActivity() {
             CoroutineScope(Dispatchers.Main).launch {
                 try {
                     // Create the order
-                    val order = Order(
+                    val order = com.example.freightapp.model.Order(
                         originCity = extractCity(originAddress),
                         destinationCity = extractCity(destinationAddress),
                         originLat = originLat,
@@ -127,9 +127,6 @@ class OrderSummaryActivity : AppCompatActivity() {
         tvSearchStatus.visibility = View.GONE
         btnConfirmOrder.isEnabled = true
     }
-
-    // OrderSummaryActivity.kt updates
-// Add these functions to your existing OrderSummaryActivity.kt
 
     private fun showSearchingForDriverUI() {
         progressBar.visibility = View.VISIBLE
@@ -234,5 +231,4 @@ class OrderSummaryActivity : AppCompatActivity() {
         // Remove order status listener
         orderStatusListener?.remove()
     }
-
 }

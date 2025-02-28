@@ -288,12 +288,12 @@ class DriverFinder {
 
             // Send notification to the driver using FCM
             val success = NotificationService.sendDriverOrderNotification(
+                context = context,  // Pass the stored context
                 fcmToken = fcmToken,
                 orderId = orderId,
                 driverId = driverId,
-                order = Order()
+                order = order  // Use the fetched order instead of Order()
             )
-
             if (success) {
                 Log.d(TAG, "Successfully notified driver $driverId for order $orderId")
 
