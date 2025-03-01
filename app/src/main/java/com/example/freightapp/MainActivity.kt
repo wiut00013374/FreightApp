@@ -26,6 +26,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        // User is signed in, check their profile and continue
+        checkUserProfile(currentUser.uid)
+
         // User is signed in, continue with MainActivity setup
         setContentView(R.layout.activity_main)
     }

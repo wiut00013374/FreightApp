@@ -22,10 +22,10 @@ class FreightApplication : Application() {
         FirebaseApp.initializeApp(this)
 
         // Enable Firestore offline persistence
-        val settings = FirebaseFirestoreSettings.Builder()
-            .setPersistenceEnabled(true)
-            .build()
-        FirebaseFirestore.getInstance().firestoreSettings = settings
+        FirebaseApp.initializeApp(this)
+
+        // Enable Firebase Auth persistence
+
 
         // Initialize OSMDroid (for maps)
         Configuration.getInstance().userAgentValue = packageName

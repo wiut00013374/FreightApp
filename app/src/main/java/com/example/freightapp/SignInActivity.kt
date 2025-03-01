@@ -19,20 +19,16 @@ class SignInActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_sign_in)
 
-
+        // 1. Check if user is already logged in
         val currentUser = FirebaseAuth.getInstance().currentUser
         if (currentUser != null) {
-            // User is already signed in, redirect to MainActivity
+            // User is already signed in; go straight to MainActivity
             startActivity(Intent(this, MainActivity::class.java))
             finish()
             return
         }
 
-        // If no user is signed in, continue with login UI setup
-        setContentView(R.layout.activity_sign_in)
-        // Enable Firebase Auth persistence
-
-
+        // 2. Set up UI if user is not logged in
         auth = FirebaseAuth.getInstance()
         firestore = FirebaseFirestore.getInstance()
 
@@ -56,6 +52,7 @@ class SignInActivity : AppCompatActivity() {
             startActivity(Intent(this, SignUpActivity::class.java))
         }
     }
+
 
     private fun signInUser(email: String, password: String) {
         auth.signInWithEmailAndPassword(email, password)
