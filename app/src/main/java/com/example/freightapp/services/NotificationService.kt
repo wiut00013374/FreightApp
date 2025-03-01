@@ -27,7 +27,7 @@ object NotificationService {
     private suspend fun getAccessToken(context: Context): String = withContext(Dispatchers.IO) {
         try {
             val credentials = GoogleCredentials
-                .fromStream(context.assets.open("firebase-service-account.json"))
+                .fromStream(context.assets.open("secrets/fcm_server_key.json"))
                 .createScoped(Arrays.asList(MESSAGING_SCOPE))
 
             credentials.refreshIfExpired()

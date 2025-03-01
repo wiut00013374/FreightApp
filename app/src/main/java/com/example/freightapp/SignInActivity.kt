@@ -18,9 +18,9 @@ class SignInActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_sign_in)
-        // Add this in onCreate() method
-        auth = FirebaseAuth.getInstance()
-        FirebaseAuth.getInstance().setPersistenceEnabled(true)
+
+        // Enable Firebase Auth persistence
+
 
         auth = FirebaseAuth.getInstance()
         firestore = FirebaseFirestore.getInstance()
@@ -64,10 +64,14 @@ class SignInActivity : AppCompatActivity() {
             .addOnSuccessListener { document ->
                 if (document.exists()) {
                     // User profile exists, go to MainActivity
-                    startActivity(Intent(this, MainActivity::class.java))
+                    val intent = Intent(this, MainActivity::class.java)
+                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                    startActivity(intent)
                 } else {
                     // No user profile, redirect to SignUpActivity
-                    startActivity(Intent(this, SignUpActivity::class.java))
+                    val intent = Intent(this, SignUpActivity::class.java)
+                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                    startActivity(intent)
                 }
                 finish()
             }
