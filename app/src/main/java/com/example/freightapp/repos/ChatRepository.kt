@@ -43,20 +43,19 @@ object ChatRepository {
             } else {
                 // Create a new chat document
                 val participants = arrayListOf(driverUid, customerUid)
-                val chat = Chat(
-                    id = chatId,
-                    orderId = orderId,
-                    driverUid = driverUid,
-                    customerUid = customerUid,
-                    timestamp = System.currentTimeMillis()
-                )
 
                 // First get the driver's name if available
                 getDriverName(driverUid) { driverName ->
-                    // Update the chat with driver's name
-                    chat.driverName = driverName
+                    // Create a data map that includes the participants array and driver name
+                    val chat = Chat(
+                        id = chatId,
+                        orderId = orderId,
+                        driverUid = driverUid,
+                        driverName = driverName,  // Store driver name in chat document
+                        customerUid = customerUid,
+                        timestamp = System.currentTimeMillis()
+                    )
 
-                    // Create a data map that includes the participants array
                     val chatData = mapOf(
                         "id" to chat.id,
                         "orderId" to chat.orderId,
@@ -92,7 +91,11 @@ object ChatRepository {
             .document(driverUid)
             .get()
             .addOnSuccessListener { doc ->
-                val name = doc.getString("displayName") ?: "Driver"
+                // Try different possible field names for the driver name
+                val name = doc.getString("displayName")
+                    ?: doc.getString("driverName")
+                    ?: doc.getString("fullName")
+                    ?: "Driver"
                 onComplete(name)
             }
             .addOnFailureListener {
@@ -117,8 +120,13 @@ object ChatRepository {
             }
 
             val chats = snapshots?.documents?.mapNotNull { doc ->
-                doc.toObject(Chat::class.java)?.apply {
-                    id = doc.id
+                try {
+                    doc.toObject(Chat::class.java)?.apply {
+                        id = doc.id
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error converting chat document: ${e.message}")
+                    null
                 }
             } ?: emptyList()
 
@@ -211,6 +219,38 @@ object ChatRepository {
                 } ?: emptyList()
 
                 onMessagesChanged(messages)
+            }
+    }
+
+    fun getChatDetails(chatId: String, onComplete: (Chat?) -> Unit) {
+        firestore.collection("chats")
+            .document(chatId)
+            .get()
+            .addOnSuccessListener { document ->
+                if (document.exists()) {
+                    val chat = document.toObject(Chat::class.java)?.apply {
+                        id = document.id
+                    }
+
+                    // If chat exists but has no driver name, try to fetch the driver name
+                    if (chat != null && chat.driverName.isBlank() && chat.driverUid.isNotBlank()) {
+                        getDriverName(chat.driverUid) { driverName ->
+                            chat.driverName = driverName
+                            // Update the chat document with the driver name
+                            firestore.collection("chats").document(chatId)
+                                .update("driverName", driverName)
+                            onComplete(chat)
+                        }
+                    } else {
+                        onComplete(chat)
+                    }
+                } else {
+                    onComplete(null)
+                }
+            }
+            .addOnFailureListener {
+                Log.e(TAG, "Error getting chat details: ${it.message}")
+                onComplete(null)
             }
     }
 

@@ -1,35 +1,64 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
+<RelativeLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="vertical"
-    android:padding="8dp"
-    android:paddingBottom="64dp"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <!-- Chat Title -->
+    <TextView
+        android:id="@+id/tvChatTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Chat"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:textColor="#FFFFFF"
+        android:background="#6200EE"
+        android:padding="16dp"
+        android:gravity="center"
+        android:layout_alignParentTop="true"/>
+
+    <!-- Messages RecyclerView -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rvMessages"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:paddingBottom="8dp" />
+        android:layout_height="match_parent"
+        android:layout_below="@id/tvChatTitle"
+        android:layout_above="@id/chatInputLayout"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:clipToPadding="false"/>
 
+    <!-- Chat Input Layout - Positioned above the bottom navigation -->
     <LinearLayout
+        android:id="@+id/chatInputLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:background="#FFFFFF"
+        android:elevation="4dp"
+        android:layout_alignParentBottom="true"
+        android:layout_marginBottom="56dp"> <!-- Add margin to accommodate bottom navigation -->
 
         <EditText
             android:id="@+id/etMessage"
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="48dp"
-            android:hint="Type message..." />
+            android:hint="Type message..."
+            android:inputType="textMultiLine"
+            android:maxLines="3"
+            android:padding="8dp"
+            android:background="@drawable/bg_message_input"/>
 
         <Button
             android:id="@+id/btnSend"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Send"/>
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:text="Send"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#6200EE"/>
     </LinearLayout>
-</LinearLayout>
+</RelativeLayout>
