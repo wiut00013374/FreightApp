@@ -128,8 +128,14 @@ class OrderMatcher(private val context: Context) {
 
     suspend fun notifyNextDriver(orderId: String): Boolean {
         try {
+            Log.d(TAG, "Attempting to notify next driver for order: $orderId")
             val orderDoc = firestore.collection("orders").document(orderId).get().await()
+            val orderData = orderDoc.data ?: run {
+                Log.e(TAG, "Order not found: $orderId")
+                return false
+            }
 
+            Log.d(TAG, "Order data: $orderData")
             if (!orderDoc.exists()) return false
 
             val driverUid = orderDoc.getString("driverUid")
@@ -165,7 +171,10 @@ class OrderMatcher(private val context: Context) {
             }
 
             val driverDoc = firestore.collection("users").document(driverId).get().await()
+            Log.d(TAG, "Driver document data: ${driverDoc.data}")
             val fcmToken = driverDoc.getString("fcmToken")
+            Log.d(TAG, "Driver FCM Token: $fcmToken")
+
 
             if (fcmToken.isNullOrBlank()) {
                 val updatedList = driversContactList.toMutableMap()
