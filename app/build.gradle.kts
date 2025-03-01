@@ -25,6 +25,7 @@ android {
     }
 
 
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -34,6 +35,7 @@ android {
             )
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -47,6 +49,11 @@ android {
     composeOptions {
         // Ensure the compiler extension version matches the Compose Compiler Gradle plugin version.
         kotlinCompilerExtensionVersion = "1.5.3"
+    }
+
+    packagingOptions {
+        pickFirst("META-INF/INDEX.LIST")
+        pickFirst("META-INF/DEPENDENCIES")
     }
 }
 
@@ -105,5 +112,9 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+
+    implementation("com.google.auth:google-auth-library-oauth2-http:1.33.1")
+
+    implementation("io.grpc:grpc-core:1.70.0")
 
 }

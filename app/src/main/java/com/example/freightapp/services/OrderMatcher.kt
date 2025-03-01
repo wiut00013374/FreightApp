@@ -130,20 +130,23 @@ class OrderMatcher(private val context: Context) {
         try {
             Log.d(TAG, "Attempting to notify next driver for order: $orderId")
             val orderDoc = firestore.collection("orders").document(orderId).get().await()
-            val orderData = orderDoc.data ?: run {
+
+            if (!orderDoc.exists()) {
                 Log.e(TAG, "Order not found: $orderId")
                 return false
             }
 
-            Log.d(TAG, "Order data: $orderData")
-            if (!orderDoc.exists()) return false
+            // Check if order already has an assigned driver
+            if (orderDoc.getString("driverUid") != null) {
+                Log.d(TAG, "Order $orderId already has a driver assigned")
+                return true
+            }
 
-            val driverUid = orderDoc.getString("driverUid")
-            if (driverUid != null) return true
-
+            // Get the drivers contact list and current index
             @Suppress("UNCHECKED_CAST")
             val driversContactList = orderDoc.get("driversContactList") as? Map<String, String>
             if (driversContactList.isNullOrEmpty()) {
+                Log.d(TAG, "No drivers to contact for order $orderId")
                 firestore.collection("orders").document(orderId)
                     .update("status", "No Drivers Available")
                     .await()
@@ -153,71 +156,86 @@ class OrderMatcher(private val context: Context) {
             val currentIndex = orderDoc.getLong("currentDriverIndex")?.toInt() ?: 0
             val driverIds = driversContactList.keys.toList()
 
+            // Check if we've gone through all drivers
             if (currentIndex >= driverIds.size) {
+                Log.d(TAG, "All drivers have been contacted for order $orderId")
                 firestore.collection("orders").document(orderId)
                     .update("status", "No Drivers Available")
                     .await()
                 return false
             }
 
+            // Get the next driver to contact
             val driverId = driverIds[currentIndex]
-            val status = driversContactList[driverId]
+            val driverStatus = driversContactList[driverId]
 
-            if (status != "pending") {
+            // Skip drivers that have already been notified or rejected
+            if (driverStatus != "pending") {
+                Log.d(TAG, "Driver $driverId status is $driverStatus, moving to next driver")
                 firestore.collection("orders").document(orderId)
                     .update("currentDriverIndex", currentIndex + 1)
                     .await()
                 return notifyNextDriver(orderId)
             }
 
+            // Get driver's FCM token
             val driverDoc = firestore.collection("users").document(driverId).get().await()
-            Log.d(TAG, "Driver document data: ${driverDoc.data}")
-            val fcmToken = driverDoc.getString("fcmToken")
-            Log.d(TAG, "Driver FCM Token: $fcmToken")
-
+            val fcmToken = driverDoc?.getString("fcmToken")
 
             if (fcmToken.isNullOrBlank()) {
+                Log.e(TAG, "Driver $driverId has no FCM token")
+
+                // Mark driver as skipped and move to next
                 val updatedList = driversContactList.toMutableMap()
                 updatedList[driverId] = "skipped"
+
                 firestore.collection("orders").document(orderId)
                     .update(
                         "driversContactList", updatedList,
                         "currentDriverIndex", currentIndex + 1
                     )
                     .await()
+
                 return notifyNextDriver(orderId)
             }
 
+            // Get the order object
             val order = orderDoc.toObject(Order::class.java)?.apply { id = orderId } ?: return false
 
-            val notificationSuccess = NotificationService.sendDriverOrderNotification(
-                context = context,
-                fcmToken = fcmToken,
-                orderId = orderId,
-                driverId = driverId,
-                order = order
-            )
+            // Use the direct FCM HTTP API for more reliability
+            val notificationSuccess = notifyDriverAboutOrder(order, driverId, fcmToken)
 
             if (notificationSuccess) {
+                Log.d(TAG, "Successfully notified driver $driverId for order $orderId")
+
+                // Update driver status to notified
                 val updatedList = driversContactList.toMutableMap()
                 updatedList[driverId] = "notified"
+
                 firestore.collection("orders").document(orderId)
                     .update(
                         "driversContactList", updatedList,
                         "lastDriverNotificationTime", System.currentTimeMillis()
                     )
                     .await()
+
+                // Schedule timeout check
                 scheduleDriverResponseTimeout(orderId)
                 return true
             } else {
+                Log.e(TAG, "Failed to notify driver $driverId")
+
+                // Mark as failed and move to next driver
                 val updatedList = driversContactList.toMutableMap()
                 updatedList[driverId] = "failed"
+
                 firestore.collection("orders").document(orderId)
                     .update(
                         "driversContactList", updatedList,
                         "currentDriverIndex", currentIndex + 1
                     )
                     .await()
+
                 return notifyNextDriver(orderId)
             }
         } catch (e: Exception) {
@@ -225,6 +243,41 @@ class OrderMatcher(private val context: Context) {
             return false
         }
     }
+
+    private suspend fun notifyDriverAboutOrder(order: Order, driverId: String, fcmToken: String): Boolean {
+        try {
+            Log.d(TAG, "Sending FCM notification to driver $driverId for order ${order.id}")
+
+            // Format price
+            val formattedPrice = String.format("$%.2f", order.totalPrice)
+
+            // Create the data map for the notification
+            val notificationData = mapOf(
+                "orderId" to order.id,
+                "type" to "order_request",
+                "originCity" to order.originCity,
+                "destinationCity" to order.destinationCity,
+                "price" to formattedPrice,
+                "truckType" to order.truckType,
+                "volume" to order.volume.toString(),
+                "weight" to order.weight.toString(),
+                "click_action" to "OPEN_ORDER_REQUEST"
+            )
+
+            // Use NotificationService to send the FCM message
+            return NotificationService.sendDriverOrderNotification(
+                context = context,
+                fcmToken = fcmToken,
+                orderId = order.id,
+                driverId = driverId,
+                order = order
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending notification to driver: ${e.message}", e)
+            return false
+        }
+    }
+
 
     private fun scheduleDriverResponseTimeout(orderId: String) {
         CoroutineScope(Dispatchers.IO).launch {
