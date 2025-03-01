@@ -19,15 +19,15 @@ class MainActivity : AppCompatActivity() {
 
         // Check if user is authenticated
         val currentUser = auth.currentUser
-        if (currentUser != null) {
-            // User is signed in, set content view and continue
-            setContentView(R.layout.activity_main)
-            setupBottomNavigation()
-        } else {
+        if (currentUser == null) {
             // No user signed in, redirect to SignInActivity
             startActivity(Intent(this, SignInActivity::class.java))
             finish()
+            return
         }
+
+        // User is signed in, continue with MainActivity setup
+        setContentView(R.layout.activity_main)
     }
 
     private fun checkUserProfile(uid: String) {

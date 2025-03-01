@@ -6,6 +6,8 @@ import com.example.freightapp.utils.NotificationHandler
 import com.example.freightapp.utils.PermissionManager
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreSettings
 import org.osmdroid.config.Configuration
 
 /**
@@ -18,6 +20,12 @@ class FreightApplication : Application() {
 
         // Initialize Firebase
         FirebaseApp.initializeApp(this)
+
+        // Enable Firestore offline persistence
+        val settings = FirebaseFirestoreSettings.Builder()
+            .setPersistenceEnabled(true)
+            .build()
+        FirebaseFirestore.getInstance().firestoreSettings = settings
 
         // Initialize OSMDroid (for maps)
         Configuration.getInstance().userAgentValue = packageName

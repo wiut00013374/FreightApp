@@ -19,6 +19,17 @@ class SignInActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_sign_in)
 
+
+        val currentUser = FirebaseAuth.getInstance().currentUser
+        if (currentUser != null) {
+            // User is already signed in, redirect to MainActivity
+            startActivity(Intent(this, MainActivity::class.java))
+            finish()
+            return
+        }
+
+        // If no user is signed in, continue with login UI setup
+        setContentView(R.layout.activity_sign_in)
         // Enable Firebase Auth persistence
 
 
