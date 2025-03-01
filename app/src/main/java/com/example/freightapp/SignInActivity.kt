@@ -18,6 +18,9 @@ class SignInActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_sign_in)
+        // Add this in onCreate() method
+        auth = FirebaseAuth.getInstance()
+        FirebaseAuth.getInstance().setPersistenceEnabled(true)
 
         auth = FirebaseAuth.getInstance()
         firestore = FirebaseFirestore.getInstance()

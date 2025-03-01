@@ -116,5 +116,15 @@ dependencies {
     implementation("com.google.auth:google-auth-library-oauth2-http:1.33.1")
 
     implementation("io.grpc:grpc-core:1.70.0")
+    configurations.all {
+        resolutionStrategy {
+            force("io.grpc:grpc-core:1.35.0")
+            force("io.grpc:grpc-okhttp:1.35.0")
+            force("io.grpc:grpc-protobuf:1.35.0")
+            force("io.grpc:grpc-stub:1.35.0")
+        }
+    }
+
 
 }
+
