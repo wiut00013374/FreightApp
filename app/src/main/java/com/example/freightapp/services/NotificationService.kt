@@ -1,7 +1,16 @@
 package com.example.freightapp.services
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.media.RingtoneManager
+import android.os.Build
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import com.example.freightapp.OrderTrackingActivity
+import com.example.freightapp.R
 import com.example.freightapp.model.Order
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -20,6 +29,10 @@ object NotificationService {
     private const val TAG = "NotificationService"
     private const val FCM_API_URL = "https://fcm.googleapis.com/v1/projects/asdasd-8e2b3/messages:send"
     private const val MESSAGING_SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
+    private const val CHANNEL_ID_ORDER_UPDATES = "order_updates_channel"
+    private const val CHANNEL_ID_PICKUP_UPDATES = "pickup_updates_channel"
+    private const val CHANNEL_ID_DELIVERY_UPDATES = "delivery_updates_channel"
+
 
     /**
      * Get OAuth2 access token for FCM API v1
@@ -193,5 +206,140 @@ object NotificationService {
             Log.e(TAG, "Error sending customer notification: ${e.message}", e)
             return@withContext false
         }
+    }
+    fun createNotificationChannels(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            // Order updates channel
+            val orderChannel = NotificationChannel(
+                CHANNEL_ID_ORDER_UPDATES,
+                "Order Status Updates",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Notifications about order status changes"
+            }
+            notificationManager.createNotificationChannel(orderChannel)
+
+            // Pickup updates channel
+            val pickupChannel = NotificationChannel(
+                CHANNEL_ID_PICKUP_UPDATES,
+                "Pickup Updates",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Notifications when your order is picked up"
+                enableVibration(true)
+            }
+            notificationManager.createNotificationChannel(pickupChannel)
+
+            // Delivery updates channel
+            val deliveryChannel = NotificationChannel(
+                CHANNEL_ID_DELIVERY_UPDATES,
+                "Delivery Updates",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Notifications when your order is delivered"
+                enableVibration(true)
+            }
+            notificationManager.createNotificationChannel(deliveryChannel)
+        }
+    }
+
+    /**
+     * Send a notification to the customer about a pickup update
+     */
+    fun sendPickupNotification(context: Context, orderId: String) {
+        // Intent to open the order tracking activity
+        val intent = Intent(context, OrderTrackingActivity::class.java).apply {
+            putExtra("EXTRA_ORDER_ID", orderId)
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Build the notification
+        val notificationBuilder = NotificationCompat.Builder(context, CHANNEL_ID_PICKUP_UPDATES)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Order Picked Up")
+            .setContentText("Your order has been picked up and is on the way to delivery")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+
+        // Show the notification
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationId = orderId.hashCode() + 1000 // Use a unique ID
+        notificationManager.notify(notificationId, notificationBuilder.build())
+    }
+
+    /**
+     * Send a notification to the customer about a delivery update
+     */
+    fun sendDeliveryNotification(context: Context, orderId: String) {
+        // Intent to open the order tracking activity
+        val intent = Intent(context, OrderTrackingActivity::class.java).apply {
+            putExtra("EXTRA_ORDER_ID", orderId)
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Build the notification
+        val notificationBuilder = NotificationCompat.Builder(context, CHANNEL_ID_DELIVERY_UPDATES)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Order Delivered")
+            .setContentText("Your order has been delivered successfully")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+
+        // Show the notification
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationId = orderId.hashCode() + 2000 // Use a unique ID
+        notificationManager.notify(notificationId, notificationBuilder.build())
+    }
+
+    /**
+     * Send a general notification about order status updates
+     */
+    fun sendOrderStatusNotification(context: Context, orderId: String, title: String, message: String) {
+        // Intent to open the order tracking activity
+        val intent = Intent(context, OrderTrackingActivity::class.java).apply {
+            putExtra("EXTRA_ORDER_ID", orderId)
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Build the notification
+        val notificationBuilder = NotificationCompat.Builder(context, CHANNEL_ID_ORDER_UPDATES)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+
+        // Show the notification
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationId = orderId.hashCode() // Use a unique ID
+        notificationManager.notify(notificationId, notificationBuilder.build())
     }
 }

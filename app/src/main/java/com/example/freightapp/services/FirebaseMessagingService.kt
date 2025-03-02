@@ -4,7 +4,6 @@ import android.util.Log
 import com.example.freightapp.model.Chat
 import com.example.freightapp.model.Message
 import com.example.freightapp.model.Order
-import com.example.freightapp.repos.ChatRepository
 import com.example.freightapp.utils.NotificationHandler
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -50,10 +49,12 @@ class FirebaseMessagingService : FirebaseMessagingService() {
             Log.d(TAG, "Message data: ${remoteMessage.data}")
 
             // Handle based on notification type
-            when (remoteMessage.data["type"]) {
+            when (val type = remoteMessage.data["type"]) {
                 "chat_message" -> handleChatMessage(remoteMessage.data)
                 "order_update" -> handleOrderUpdate(remoteMessage.data)
-                else -> Log.d(TAG, "Unknown notification type")
+                "pickup_update" -> handlePickupUpdate(remoteMessage.data)
+                "delivery_update" -> handleDeliveryUpdate(remoteMessage.data)
+                else -> Log.d(TAG, "Unknown notification type: $type")
             }
         }
 
@@ -106,6 +107,7 @@ class FirebaseMessagingService : FirebaseMessagingService() {
      */
     private fun handleOrderUpdate(data: Map<String, String>) {
         val orderId = data["orderId"] ?: return
+        val status = data["status"] ?: "Updated"
 
         // Fetch the order details from Firestore
         firestore.collection("orders")
@@ -120,7 +122,43 @@ class FirebaseMessagingService : FirebaseMessagingService() {
                         context = applicationContext,
                         order = order
                     )
+
+                    // If the status is "In Progress", also update the UI in real-time
+                    if (status == "In Progress") {
+                        NotificationService.sendOrderStatusNotification(
+                            context = applicationContext,
+                            orderId = orderId,
+                            title = "Driver is on the way",
+                            message = "Your driver has started the trip and is heading to pickup your freight"
+                        )
+                    }
                 }
             }
+    }
+
+    /**
+     * Handle a pickup update notification
+     */
+    private fun handlePickupUpdate(data: Map<String, String>) {
+        val orderId = data["orderId"] ?: return
+
+        // Send a pickup notification
+        NotificationService.sendPickupNotification(
+            context = applicationContext,
+            orderId = orderId
+        )
+    }
+
+    /**
+     * Handle a delivery update notification
+     */
+    private fun handleDeliveryUpdate(data: Map<String, String>) {
+        val orderId = data["orderId"] ?: return
+
+        // Send a delivery notification
+        NotificationService.sendDeliveryNotification(
+            context = applicationContext,
+            orderId = orderId
+        )
     }
 }
