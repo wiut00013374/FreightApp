@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.cardview.widget.CardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_margin="16dp"
+    app:cardCornerRadius="8dp"
+    app:cardElevation="4dp">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- Order ID -->
+            <TextView
+                android:id="@+id/tvOrderDetailId"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Order #12345678"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp" />
+
+            <!-- Status -->
+            <TextView
+                android:id="@+id/tvOrderDetailStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Status: Pending"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="@color/purple_500"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Origin -->
+            <TextView
+                android:id="@+id/tvOrderDetailOrigin"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="From: Origin City"
+                android:textSize="16sp"
+                android:layout_marginBottom="8dp" />
+
+            <!-- Destination -->
+            <TextView
+                android:id="@+id/tvOrderDetailDestination"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="To: Destination City"
+                android:textSize="16sp"
+                android:layout_marginBottom="8dp" />
+
+            <!-- Truck Type -->
+            <TextView
+                android:id="@+id/tvOrderDetailTruckType"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Truck: Medium"
+                android:textSize="16sp"
+                android:layout_marginBottom="8dp" />
+
+            <!-- Price -->
+            <TextView
+                android:id="@+id/tvOrderDetailPrice"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Price: $100.00"
+                android:textSize="16sp"
+                android:layout_marginBottom="8dp" />
+
+            <!-- Created At -->
+            <TextView
+                android:id="@+id/tvOrderDetailCreatedAt"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Created: Jan 1, 2025 12:00 PM"
+                android:textSize="14sp"
+                android:layout_marginBottom="8dp" />
+
+            <!-- Driver Info -->
+            <TextView
+                android:id="@+id/tvOrderDetailDriver"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Driver: Not assigned yet"
+                android:textSize="16sp"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Action Buttons -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnTrackOrder"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Track Order"
+                    android:visibility="gone"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/btnContactDriver"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Contact Driver"
+                    android:visibility="gone" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+</androidx.cardview.widget.CardView>
